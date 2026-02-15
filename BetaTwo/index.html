@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Share - Large Files</title>
+    <style>
+        :root { --bg: #121212; --surface: #1e1e1e; --primary: #00e5ff; --text: #e0e0e0; --border: #333; }
+        body { margin: 0; padding: 15px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+        .container { max-width: 700px; margin: 0 auto; }
+        .card { background: var(--surface); border-radius: 12px; padding: 20px; margin-bottom: 15px; border: 1px solid var(--border); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        
+        /* Botões */
+        .btn { padding: 10px 18px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; background: var(--primary); color: #000; transition: transform 0.1s; }
+        .btn:active { transform: scale(0.98); }
+        .btn-danger { background: #ff5252; color: #fff; }
+        .btn-icon { background: transparent; border: 1px solid #555; color: #fff; padding: 8px 12px; }
+        
+        /* Inputs */
+        .key-input { width: 100%; padding: 12px; background: #000; border: 1px solid var(--primary); color: white; border-radius: 6px; box-sizing: border-box; font-family: monospace; letter-spacing: 1px; }
+        
+        /* Tabs */
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+        .tab-btn { background: none; border: none; color: #888; padding: 12px 20px; cursor: pointer; font-weight: 600; border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: var(--primary); border-color: var(--primary); }
+        
+        /* Utilitários */
+        .hidden { display: none !important; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        
+        /* Upload Status */
+        .progress-container { width: 100%; background: #333; height: 12px; border-radius: 6px; margin-top: 15px; overflow: hidden; }
+        .progress-bar { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s linear; }
+        .status-text { font-size: 13px; color: #aaa; margin-top: 8px; text-align: center; }
+
+        /* File List */
+        .file-item { padding: 12px; background: rgba(255,255,255,0.05); margin-bottom: 8px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; font-weight: 500; }
+
+        /* Media */
+        video, img { width: 100%; max-height: 60vh; background: #000; border-radius: 8px; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER / CHAVE -->
+        <div class="card">
+            <div class="flex-between">
+                <h2 style="margin:0">🔒 Chave Secreta</h2>
+                <div style="display:flex; gap:5px">
+                    <button class="btn btn-icon" onclick="toggleKey()">👁️</button>
+                </div>
+            </div>
+            <p style="font-size:12px; color:#888; margin: 10px 0;">Esta chave é a única forma de ver os teus ficheiros.</p>
+            <input type="password" id="owner-key" class="key-input" oninput="saveKey()">
+        </div>
+
+        <!-- NAVEGAÇÃO -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('upload', this)">Enviar</button>
+            <button class="tab-btn" onclick="switchTab('files', this)">Meus Ficheiros</button>
+            <button class="tab-btn" onclick="switchTab('view', this)">Abrir Link</button>
+        </div>
+
+        <!-- TAB: UPLOAD -->
+        <div id="upload-tab">
+            <div class="card" style="text-align:center; border:2px dashed #444; padding:60px 20px; cursor:pointer; transition: 0.2s" 
+                 onclick="document.getElementById('fileIn').click()" 
+                 onmouseover="this.style.borderColor='#00e5ff'" 
+                 onmouseout="this.style.borderColor='#444'">
+                <div style="font-size: 40px; margin-bottom: 10px">☁️</div>
+                <h3>Tocar para escolher ficheiro</h3>
+                <p style="color:#666">Suporta ficheiros > 1GB</p>
+            </div>
+            <input type="file" id="fileIn" hidden onchange="startBigUpload(this.files)">
+            
+            <div id="upload-status" class="card hidden">
+                <h3 id="upload-title">A enviar...</h3>
+                <div class="progress-container">
+                    <div id="progress-bar" class="progress-bar"></div>
+                </div>
+                <div class="flex-between status-text">
+                    <span id="progress-percent">0%</span>
+                    <span id="progress-info">A iniciar...</span>
+                </div>
+                <p style="font-size:11px; color:#ff5252; margin-top:10px; text-align:center">⚠️ Não feches esta aba!</p>
+            </div>
+        </div>
+
+        <!-- TAB: LISTA -->
+        <div id="files-tab" class="hidden">
+            <div class="card">
+                <div class="flex-between" style="margin-bottom:15px">
+                    <h3>Ficheiros Guardados</h3>
+                    <button class="btn" style="font-size:12px; padding: 5px 10px;" onclick="loadFiles()">🔄 Atualizar</button>
+                </div>
+                <div id="list"></div>
+            </div>
+        </div>
+
+        <!-- TAB: VISUALIZADOR -->
+        <div id="view-tab" class="hidden">
+            <div class="card">
+                <div style="display:flex; gap:10px">
+                    <input type="text" id="linkIn" class="key-input" placeholder="Cola aqui o link completo..." style="margin:0">
+                    <button class="btn" onclick="loadViewer(null)">Ver</button>
+                </div>
+                <div id="viewer" class="hidden" style="margin-top:20px; padding-top:20px; border-top:1px solid #333"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURAÇÃO ---
+        const API = '/api';
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB (Melhor balanceamento velocidade/segurança)
+        const MAX_RETRIES = 3; // Tenta 3 vezes se a net falhar
+
+        // --- GESTÃO DE CHAVE ---
+        const keyInput = document.getElementById('owner-key');
+        keyInput.value = localStorage.getItem('myKey') || Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+        saveKey(); // Garante que salva na primeira vez
+
+        function saveKey() { localStorage.setItem('myKey', keyInput.value); }
+        function toggleKey() { keyInput.type = keyInput.type === "password" ? "text" : "password"; }
+
+        // --- NAVEGAÇÃO ---
+        function switchTab(id, btn) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            if(btn) btn.classList.add('active');
+            ['upload', 'files', 'view'].forEach(t => document.getElementById(t+'-tab').classList.add('hidden'));
+            document.getElementById(id+'-tab').classList.remove('hidden');
+            if(id === 'files') loadFiles();
+        }
+
+        // --- UPLOAD INTELIGENTE (CHUNKED + RETRY) ---
+        let isUploading = false;
+
+        // Proteção contra fecho acidental
+        window.onbeforeunload = function() {
+            if (isUploading) return "Upload em progresso. Tens a certeza que queres sair?";
+        };
+
+        async function startBigUpload(files) {
+            if(!files.length) return;
+            const file = files[0];
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            const fileUUID = Math.random().toString(36).substr(2, 9);
+            const permission = confirm('Permitir que outras pessoas façam download?') ? 'download' : 'view';
+            
+            // UI Reset
+            isUploading = true;
+            document.getElementById('upload-status').classList.remove('hidden');
+            document.getElementById('upload-title').innerText = `A enviar: ${file.name}`;
+            updateProgress(0, totalChunks);
+            
+            for (let chunkNum = 1; chunkNum <= totalChunks; chunkNum++) {
+                const start = (chunkNum - 1) * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+
+                // Tenta enviar este pedaço com retries
+                let success = false;
+                for(let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                    try {
+                        const url = `${API}/upload_chunk?filename=${fileUUID}&chunk_number=${chunkNum}&total_chunks=${totalChunks}&original_name=${encodeURIComponent(file.name)}&key=${keyInput.value}&permission=${permission}`;
+                        
+                        const res = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/octet-stream' },
+                            body: chunk
+                        });
+
+                        if(!res.ok) throw new Error('Servidor rejeitou');
+                        
+                        // Se chegou aqui, funcionou. Sai do loop de tentativas.
+                        success = true;
+                        
+                        // Se for o último, processa resposta final
+                        if(chunkNum === totalChunks) {
+                             const data = await res.json();
+                             finishUpload(data);
+                             return;
+                        }
+                        break; 
+
+                    } catch (e) {
+                        console.warn(`Erro no pedaço ${chunkNum}, tentativa ${attempt}/${MAX_RETRIES}`);
+                        document.getElementById('progress-info').innerText = `Erro de rede... A tentar de novo (${attempt}/${MAX_RETRIES})`;
+                        // Espera 1 segundo antes de tentar de novo
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                }
+
+                if(!success) {
+                    alert('Falha crítica no upload. Verifica a tua internet.');
+                    isUploading = false;
+                    document.getElementById('upload-status').classList.add('hidden');
+                    return;
+                }
+
+                updateProgress(chunkNum, totalChunks);
+            }
+        }
+
+        function updateProgress(current, total) {
+            const percent = Math.round((current / total) * 100);
+            document.getElementById('progress-bar').style.width = percent + '%';
+            document.getElementById('progress-percent').innerText = percent + '%';
+            document.getElementById('progress-info').innerText = `Parte ${current} de ${total}`;
+        }
+
+        function finishUpload(data) {
+            isUploading = false;
+            const fullLink = window.location.origin + '/#file=' + data.file.id;
+            prompt("Upload Concluído! Copia o link:", fullLink);
+            
+            document.getElementById('upload-status').classList.add('hidden');
+            document.getElementById('fileIn').value = ''; // Limpa input
+            switchTab('files', null); // Vai para a lista
+        }
+
+        // --- LISTA ---
+        async function loadFiles() {
+            const list = document.getElementById('list');
+            list.innerHTML = '<div style="text-align:center; padding:20px; color:#666">A carregar...</div>';
+            try {
+                const res = await fetch(`${API}/files?key=${keyInput.value}`);
+                const data = await res.json();
+                
+                if(!data.length) { 
+                    list.innerHTML = '<div style="text-align:center; padding:20px; color:#666">Nenhum ficheiro encontrado.</div>'; 
+                    return; 
+                }
+
+                list.innerHTML = data.map(f => {
+                    const fullLink = window.location.origin + '/#file=' + f.id;
+                    const sizeMB = (f.size / (1024*1024)).toFixed(1);
+                    return `
+                    <div class="file-item">
+                        <div style="flex-grow:1; margin-right:10px; overflow:hidden">
+                            <div class="file-name" title="${f.name}">${f.name}</div>
+                            <small style="color:#666">${sizeMB} MB • ${new Date(f.uploadDate).toLocaleDateString()}</small>
+                        </div>
+                        <div style="flex-shrink:0">
+                            <button class="btn" style="padding:6px 12px; font-size:12px" onclick="copy('${fullLink}')">🔗</button>
+                            <button class="btn btn-danger" style="padding:6px 12px; font-size:12px" onclick="del('${f.id}')">🗑️</button>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch(e) { list.innerHTML = '<div style="color:#ff5252; text-align:center">Erro ao carregar lista.</div>'; }
+        }
+
+        async function del(id) {
+            if(!confirm('Tens a certeza que queres apagar permanentemente?')) return;
+            await fetch(`${API}/files/${id}`, { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key: keyInput.value}) });
+            loadFiles();
+        }
+
+        function copy(text) {
+            navigator.clipboard.writeText(text).then(() => alert('Link copiado para a área de transferência!'));
+        }
+
+        // --- VISUALIZADOR ---
+        async function loadViewer(idParam) {
+            let id = idParam;
+            if(!id) {
+                const val = document.getElementById('linkIn').value;
+                if(val.includes('file=')) id = val.split('file=')[1];
+                else { alert('Link inválido'); return; }
+            }
+
+            const viewer = document.getElementById('viewer');
+            viewer.innerHTML = '<div style="text-align:center">A carregar ficheiro...</div>';
+            viewer.classList.remove('hidden');
+
+            try {
+                const res = await fetch(`${API}/files/${id}`);
+                if(!res.ok) throw new Error();
+                const f = await res.json();
+                
+                const resourceUrl = f.url; // Relativo
+                let html = `<h3 style="word-break:break-all">${f.name}</h3>`;
+                
+                // Detecção inteligente de tipo
+                if(f.type.startsWith('image')) {
+                    html += `<img src="${resourceUrl}">`;
+                } else if(f.type.startsWith('video')) {
+                    html += `
+                        <video controls playsinline preload="metadata">
+                            <source src="${resourceUrl}" type="${f.type}">
+                            <source src="${resourceUrl}" type="video/mp4">
+                            O teu browser não suporta este vídeo.
+                        </video>`;
+                } else {
+                    html += `<div style="padding:30px; background:#000; border-radius:8px; text-align:center; margin-top:15px">
+                        📄 Pré-visualização indisponível para este tipo de ficheiro.
+                    </div>`;
+                }
+
+                if(f.permission === 'download') {
+                    html += `<a href="${resourceUrl}" download="${f.name}" class="btn" style="display:block; text-align:center; margin-top:20px; text-decoration:none; padding:15px">⬇️ DOWNLOAD (${(f.size/(1024*1024)).toFixed(1)} MB)</a>`;
+                } else {
+                    html += `<div style="text-align:center; margin-top:20px; color:#ff5252; border:1px solid #ff5252; padding:10px; border-radius:6px">⛔ Download Bloqueado pelo dono</div>`;
+                }
+                
+                viewer.innerHTML = html;
+            } catch(e) { 
+                viewer.innerHTML = '<div style="color:#ff5252; text-align:center">Ficheiro não encontrado ou removido.</div>';
+            }
+        }
+
+        // Auto-load se abrir com link
+        if(window.location.hash.includes('file=')) {
+            switchTab('view', null);
+            document.getElementById('linkIn').value = window.location.href;
+            loadViewer(window.location.hash.split('file=')[1]);
+        }
+    </script>
+</body>
+</html>

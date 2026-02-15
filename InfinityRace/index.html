@@ -1,0 +1,1006 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Super Corrida Pro XL - Drift Edition</title>
+  <style>
+    body { margin:0; overflow:hidden; background:#111; font-family: system-ui, sans-serif; color:#fff; }
+    canvas { display:block; }
+    #ui { position: fixed; inset: 0; pointer-events: none; }
+    #topbar {
+      position:absolute; top:12px; left:0; right:0;
+      display:flex; justify-content:center; gap:32px;
+      font-size: 26px; font-weight:800; text-shadow: 0 2px 0 #000;
+    }
+    #topbar .mono { font-family: monospace; font-weight:900; color: #4fc3f7; }
+    #warning {
+      position:absolute; top:60px; left:50%; transform:translateX(-50%);
+      color:#ffcc00; font-weight:800; display:none;
+      text-shadow: 2px 2px 0 #000; background:rgba(0,0,0,0.6);
+      padding:8px 16px; border-radius:8px;
+    }
+    #trackName { position:absolute; top:12px; right:20px; font-size:18px; font-weight:800; text-shadow: 0 2px 0 #000; }
+    
+    #leaderboard {
+      position:absolute; top:100px; left:16px;
+      background: rgba(0,0,0,0.65); border-left: 5px solid gold;
+      padding: 12px 14px; border-radius: 10px; min-width: 260px;
+      max-height:70vh; overflow-y:auto;
+    }
+    #leaderboard h3 { margin:0 0 8px 0; font-size:14px; letter-spacing:1px; }
+    .row { display:flex; justify-content:space-between; gap:12px; font-size: 13px; margin: 4px 0; }
+    .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+    .ping-text { font-size: 11px; color: #aaa; font-family: monospace; }
+
+    #overlay {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      pointer-events:auto; background:rgba(0,0,0,0.4); backdrop-filter: blur(4px);
+    }
+    #panel {
+      width: 560px; max-width:90vw; background: rgba(0,0,0,0.9);
+      border: 1px solid rgba(255,255,255,0.2); border-radius: 18px;
+      padding: 26px 22px; text-align:center; box-shadow:0 8px 32px rgba(0,0,0,0.5);
+    }
+    #panel h1 {
+      margin:0 0 8px 0; font-size:36px;
+      background:linear-gradient(45deg, #4fc3f7, #9fe870);
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    }
+    #panel p { margin:0 0 16px 0; opacity:0.9; }
+
+    .btn {
+      pointer-events:auto; border:none; padding:14px 22px; border-radius:10px;
+      font-size:18px; font-weight:900; cursor:pointer; margin:6px;
+      color:#111; background:#9fe870; transition:all 0.2s;
+      box-shadow:0 4px 0 rgba(0,0,0,0.3);
+    }
+    .btn:hover { transform:translateY(-2px); box-shadow:0 6px 0 rgba(0,0,0,0.3); }
+    .btn:active { transform:translateY(0); box-shadow:0 2px 0 rgba(0,0,0,0.3); }
+    .btn:disabled { background:#666; cursor:not-allowed; transform:none; box-shadow:none; }
+    .btn.red { background:#ff6b6b; }
+    .btn.blue { background:#4fc3f7; }
+    .btn.small { font-size:14px; padding:10px 16px; }
+
+    #countdown { display:none; font-size:110px; font-weight:1000; color:#ffe600; text-shadow:0 0 20px rgba(255,230,0,0.5); }
+
+    .car-selector { display:flex; justify-content:center; gap:16px; margin:20px 0; flex-wrap:wrap; }
+    .car-card {
+      background: rgba(255,255,255,0.05);
+      border: 3px solid rgba(255,255,255,0.1);
+      border-radius: 12px; padding: 16px; cursor: pointer; width: 180px;
+      transition: all 0.2s;
+    }
+    .car-card:hover { background: rgba(255,255,255,0.15); transform:scale(1.05); border-color:rgba(255,255,255,0.3); }
+    .car-card.selected { border-color:#9fe870; background:rgba(159,232,112,0.2); box-shadow:0 0 20px rgba(159,232,112,0.3); }
+    .car-card h3 { margin:0 0 8px 0; font-size:18px; }
+    .car-card p { margin:4px 0; font-size:13px; opacity:0.9; }
+
+    #spectatorUI {
+      position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+      background:rgba(0,0,0,0.75); padding:10px 18px; border-radius:8px;
+      display:none; border:2px solid rgba(79,195,247,0.5);
+    }
+    #spectatorUI.visible { display:block; text-align:center; font-size:14px; }
+
+    #leaveBtn { position:absolute; bottom:20px; right:20px; pointer-events:auto; display:none; }
+    #leaveBtn.visible { display:block; }
+
+    #zoomIndicator {
+      position: absolute;
+      bottom: 100px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.75);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      display: none;
+      pointer-events: none;
+      border: 2px solid rgba(79,195,247,0.5);
+      color: #4fc3f7;
+    }
+    #zoomIndicator.visible {
+      display: block;
+    }
+
+    #exitSpectatorBtn {
+      position: absolute;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: auto;
+      display: none;
+    }
+    #exitSpectatorBtn.visible {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div id="topbar">
+      <div id="lapUI">VOLTA: 0/3</div>
+      <div id="timeUI" class="mono">00:00.000</div>
+      <div id="cpUI">CP: 0/0</div>
+    </div>
+
+    <div id="trackName"></div>
+    <div id="warning"></div>
+
+    <div id="spectatorUI"><div id="spectatorMode">ESPETADOR • TAB: Alternar Vista</div></div>
+    <div id="zoomIndicator">ZOOM: 1.0×</div>
+
+    <div id="leaderboard">
+      <h3>RANKING (PING)</h3>
+      <div id="lb"></div>
+    </div>
+
+    <button id="leaveBtn" class="btn red small">ABANDONAR CORRIDA</button>
+    <button id="exitSpectatorBtn" class="btn blue small">VOLTAR AO LOBBY</button>
+
+    <div id="overlay">
+      <div id="panel">
+        <h1>SUPER CORRIDA PRO XL</h1>
+        <p id="stateText">Escolhe o teu carro ou fica de espetador!</p>
+        <div id="countdown">15</div>
+
+        <div id="carSelection" style="display:block;">
+          <h2 style="margin-bottom:12px;">Escolhe o Teu Carro</h2>
+          <div class="car-selector">
+            <div class="car-card selected" data-type="agile" onclick="selectCar('agile')">
+              <h3>ÁGIL (GRIP)</h3>
+              <p>Aderência: ⭐⭐⭐⭐⭐</p>
+              <p>Velocidade: ⭐⭐⭐</p>
+              <p style="font-size:11px;margin-top:8px;opacity:0.7">Cola-se à estrada. Fácil de controlar.</p>
+            </div>
+            <div class="car-card" data-type="rocket" onclick="selectCar('rocket')">
+              <h3>DRIFT (SLIDE)</h3>
+              <p>Aderência: ⭐⭐</p>
+              <p>Velocidade: ⭐⭐⭐⭐⭐</p>
+              <p style="font-size:11px;margin-top:8px;opacity:0.7">Derrapa muito. Difícil de dominar.</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="buttons">
+          <button id="joinBtn" class="btn">PARTICIPAR NA CORRIDA</button>
+          <button id="spectateBtn" class="btn blue">FICAR DE ESPETADOR</button>
+          <button id="startBtn" class="btn red" disabled>INICIAR CORRIDA (15s)</button>
+          <button id="skipBtn" class="btn small" style="display:none;">NÃO PARTICIPAR NA PRÓXIMA</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="c"></canvas>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+
+    const overlay = document.getElementById("overlay");
+    const countdownEl = document.getElementById("countdown");
+    const joinBtn = document.getElementById("joinBtn");
+    const spectateBtn = document.getElementById("spectateBtn");
+    const startBtn = document.getElementById("startBtn");
+    const skipBtn = document.getElementById("skipBtn");
+    const leaveBtn = document.getElementById("leaveBtn");
+    const exitSpectatorBtn = document.getElementById("exitSpectatorBtn");
+    const warningEl = document.getElementById("warning");
+    const trackNameEl = document.getElementById("trackName");
+    const spectatorUI = document.getElementById("spectatorUI");
+    const zoomIndicator = document.getElementById("zoomIndicator");
+    let zoomIndicatorTimeout = null;
+
+    const MAP_W = 4000, MAP_H = 4000;
+    const trackWidth = 240;
+
+    let trackPath = new Path2D();
+    let checkpoints = [];
+    let obstacles = [];
+    let finish = null;
+
+    let pickups = [];
+    const pickupState = new Map();
+
+    let selectedCarType = "agile";
+
+    // FÍSICA CORRIGIDA - Valores mais equilibrados
+    const CAR_STATS = {
+      agile:  { power: 1200, drag: 0.96, grip: 0.85, turnSpeed: 3.2, maxSpeed: 1500 },
+      rocket: { power: 1600, drag: 0.97, grip: 0.50, turnSpeed: 2.5, maxSpeed: 2200 },
+    };
+
+    let myId = null;
+    let myName = "Eu";
+    let amParticipant = false;
+    let isSpectator = false;
+
+    const myCar = { x: 400, y: 400, vx: 0, vy: 0, angle: 0, color: "#fff", type: "agile" };
+    
+    const others = new Map();
+
+    const cam = { x: 400, y: 400, angle: 0 };
+
+    let cameraMode = 0;
+    let followingPlayerId = null;
+    let cameraZoom = 1.0;
+    let manualZoom = 1.0;
+    const MIN_ZOOM = 0.1; 
+    const MAX_ZOOM = 2.5;
+
+    let gameState = "WAITING";
+    let countdownEndAt = 0;
+    let totalLaps = 3;
+
+    let lapsCompleted = 0;
+    let currentCheckpoint = 0;
+
+    let offroadTime = 0;
+    let lapStartTime = 0;
+
+    let boostUntil = 0;
+    let slowUntil = 0;
+    let boostMult = 1.0;
+    let slowMult = 1.0;
+
+    const keys = {};
+    
+    setInterval(() => {
+        socket.emit("ping", { timestamp: Date.now() });
+    }, 1000);
+
+    socket.on("pong", () => {});
+
+    function resize() {
+      canvas.width = innerWidth;
+      canvas.height = innerHeight;
+    }
+    addEventListener("resize", resize);
+    resize();
+
+    addEventListener("keydown", (e) => {
+      keys[e.key] = true;
+      if (e.key === "Tab" && (isSpectator || !amParticipant)) {
+        e.preventDefault();
+        cameraMode = (cameraMode + 1) % 2;
+        updateSpectatorUI();
+      }
+    });
+
+    addEventListener("keyup", (e) => {
+      keys[e.key] = false;
+    });
+
+    addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const zoomSpeed = 0.001;
+      const delta = -e.deltaY * zoomSpeed;
+      manualZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, manualZoom + delta));
+      zoomIndicator.textContent = `ZOOM: ${manualZoom.toFixed(1)}×`;
+      zoomIndicator.classList.add("visible");
+      clearTimeout(zoomIndicatorTimeout);
+      zoomIndicatorTimeout = setTimeout(() => {
+        zoomIndicator.classList.remove("visible");
+      }, 1200);
+    }, { passive: false });
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    function wrapAngle(a) {
+      while (a > Math.PI) a -= Math.PI * 2;
+      while (a < -Math.PI) a += Math.PI * 2;
+      return a;
+    }
+
+    function lerpAngle(a, b, t) {
+      const d = wrapAngle(b - a);
+      return a + d * t;
+    }
+
+    function selectCar(type) {
+      selectedCarType = type;
+      document.querySelectorAll(".car-card").forEach(c => c.classList.remove("selected"));
+      document.querySelector(`[data-type="${type}"]`).classList.add("selected");
+    }
+
+    function showWarning(text) {
+      warningEl.textContent = text;
+      warningEl.style.display = "block";
+      setTimeout(() => warningEl.style.display = "none", 1600);
+    }
+
+    function updateSpectatorUI() {
+      if (!isSpectator && amParticipant) {
+        spectatorUI.classList.remove("visible");
+        exitSpectatorBtn.classList.remove("visible");
+        return;
+      }
+      
+      if (isSpectator && !amParticipant) {
+        spectatorUI.classList.add("visible");
+        exitSpectatorBtn.classList.add("visible");
+        
+        let modeText = "Vista Geral";
+        if (cameraMode === 1) {
+          const playerName = followingPlayerId && others.has(followingPlayerId) 
+            ? others.get(followingPlayerId).name 
+            : "?";
+          modeText = `A seguir: ${playerName} (← → trocar)`;
+        }
+        
+        spectatorUI.querySelector("#spectatorMode").textContent = `ESPETADOR • ${modeText} • TAB • Scroll=Zoom`;
+      } else {
+        spectatorUI.classList.remove("visible");
+        exitSpectatorBtn.classList.remove("visible");
+      }
+    }
+
+    function buildTrackPath(pathData) {
+      const p = new Path2D();
+      (pathData || []).forEach(cmd => {
+        if (cmd.cmd === "moveTo") p.moveTo(cmd.x, cmd.y);
+        else if (cmd.cmd === "lineTo") p.lineTo(cmd.x, cmd.y);
+        else if (cmd.cmd === "bezierCurveTo") p.bezierCurveTo(cmd.cp1x, cmd.cp1y, cmd.cp2x, cmd.cp2y, cmd.x, cmd.y);
+      });
+      return p;
+    }
+
+    function getEffectMult() {
+      const now = Date.now();
+      const b = now < boostUntil ? boostMult : 1.0;
+      const s = now < slowUntil ? slowMult : 1.0;
+      return b * s;
+    }
+
+    function applyStateUI() {
+      const shouldHideOverlay = isSpectator || (gameState === "RACING" && amParticipant);
+      overlay.style.display = shouldHideOverlay ? "none" : "flex";
+
+      countdownEl.style.display = (gameState === "COUNTDOWN") ? "block" : "none";
+
+      const buttons = document.getElementById("buttons");
+      buttons.style.display = (gameState === "WAITING" && !isSpectator) ? "block" : "none";
+
+      const carSel = document.getElementById("carSelection");
+      if (gameState === "WAITING" && !isSpectator) {
+        carSel.style.display = amParticipant ? "none" : "block";
+      }
+
+      if (gameState === "RACING" && amParticipant) leaveBtn.classList.add("visible");
+      else leaveBtn.classList.remove("visible");
+
+      updateSpectatorUI();
+    }
+
+    function renderLB(list) {
+      const el = document.getElementById("lb");
+      el.innerHTML = "";
+
+      (list || []).slice().sort((a, b) => (b.score - a.score)).forEach(p => {
+        const row = document.createElement("div");
+        row.className = "row";
+        const carIcon = p.carType === "rocket" ? "🚀" : "🏎️";
+        const ping = p.ping || 0;
+        let pColor = "#0f0";
+        if(ping > 100) pColor = "#ff0";
+        if(ping > 200) pColor = "#f00";
+
+        row.innerHTML = `<div><span class="dot" style="background:${p.color}"></span> ${carIcon} ${p.name} <span class="ping-text" style="color:${pColor}">(${ping}ms)</span></div>
+                         <div>${p.score}pts | ${p.lapsCompleted}/${totalLaps}</div>`;
+        el.appendChild(row);
+      });
+    }
+
+    joinBtn.onclick = () => {
+      socket.emit("joinRace", { carType: selectedCarType });
+      joinBtn.style.display = "none";
+      spectateBtn.style.display = "none";
+      skipBtn.style.display = "inline-block";
+      document.getElementById("carSelection").style.display = "none";
+      amParticipant = true;
+      isSpectator = false;
+      manualZoom = 1.0;
+      applyStateUI();
+    };
+
+    spectateBtn.onclick = () => {
+      isSpectator = true;
+      amParticipant = false;
+      manualZoom = 1.0;
+      joinBtn.style.display = "none";
+      spectateBtn.style.display = "none";
+      skipBtn.style.display = "none";
+      document.getElementById("carSelection").style.display = "none";
+      showWarning("Modo espetador");
+      applyStateUI();
+    };
+
+    skipBtn.onclick = () => {
+      socket.emit("leaveRace");
+      amParticipant = false;
+      skipBtn.style.display = "none";
+      joinBtn.style.display = "inline-block";
+      spectateBtn.style.display = "inline-block";
+      document.getElementById("carSelection").style.display = "block";
+      showWarning("Fora da próxima corrida");
+      applyStateUI();
+    };
+
+    leaveBtn.onclick = () => {
+      socket.emit("leaveRace");
+      amParticipant = false;
+      isSpectator = true;
+      showWarning("Abandonaste");
+      applyStateUI();
+    };
+
+    exitSpectatorBtn.onclick = () => {
+      isSpectator = false;
+      amParticipant = false;
+      manualZoom = 1.0;
+      exitSpectatorBtn.classList.remove("visible");
+      joinBtn.style.display = "inline-block";
+      spectateBtn.style.display = "inline-block";
+      document.getElementById("carSelection").style.display = "block";
+      showWarning("Voltaste ao lobby");
+      applyStateUI();
+    };
+
+    startBtn.onclick = () => {
+      socket.emit("startRaceRequest");
+      startBtn.disabled = true;
+      startBtn.textContent = "A INICIAR...";
+    };
+
+    socket.on("welcome", (d) => {
+      myId = d.yourId;
+      gameState = d.gameState;
+      countdownEndAt = d.countdownEndAt;
+      totalLaps = d.totalLaps || 3;
+
+      const me = (d.players || []).find(p => p.id === myId);
+      if (me) {
+        myName = me.name || myName;
+        myCar.color = me.color || myCar.color;
+        myCar.type = me.carType || myCar.type;
+        myCar.x = me.x ?? myCar.x;
+        myCar.y = me.y ?? myCar.y;
+        myCar.vx = 0;
+        myCar.vy = 0;
+        myCar.angle = me.angle ?? myCar.angle;
+      }
+
+      if (d.currentTrack) {
+        trackPath = buildTrackPath(d.currentTrack.path);
+        checkpoints = d.currentTrack.checkpoints || [];
+        finish = d.currentTrack.finish || null;
+        obstacles = d.currentTrack.obstacles || [];
+        trackNameEl.textContent = d.currentTrack.name ? `Pista: ${d.currentTrack.name}` : "";
+      }
+
+      pickups = d.pickups || [];
+      pickupState.clear();
+      pickups.forEach(p => pickupState.set(p.id, !!p.active));
+
+      others.clear();
+      (d.players || []).forEach(p => {
+        if (p.id !== myId && p.isParticipant) {
+          others.set(p.id, { ...p, tx: p.x, ty: p.y, tangle: p.angle, ping: p.ping || 0 });
+        }
+      });
+
+      applyStateUI();
+    });
+
+    socket.on("lobbyUpdate", (d) => {
+      gameState = d.gameState;
+      countdownEndAt = d.countdownEndAt;
+      totalLaps = d.totalLaps || totalLaps;
+
+      const wasParticipant = amParticipant;
+      amParticipant = (d.participants || []).includes(myId);
+
+      if (wasParticipant && !amParticipant) {
+        joinBtn.style.display = "inline-block";
+        spectateBtn.style.display = "inline-block";
+        skipBtn.style.display = "none";
+      }
+
+      startBtn.disabled = !(amParticipant && gameState === "WAITING");
+      if (gameState === "WAITING") startBtn.textContent = "INICIAR CORRIDA (15s)";
+      
+      if (d.currentTrack) {
+        obstacles = d.currentTrack.obstacles || [];
+      }
+
+      renderLB(d.leaderboard);
+      applyStateUI();
+    });
+
+    socket.on("countdown", (d) => {
+      countdownEndAt = d.countdownEndAt;
+      applyStateUI();
+    });
+
+    socket.on("raceStarted", (d) => {
+      lapsCompleted = 0;
+      currentCheckpoint = 0;
+      offroadTime = 0;
+      lapStartTime = Date.now();
+      
+      myCar.vx = 0;
+      myCar.vy = 0;
+      myCar.angle = 0;
+
+      if (d.track) {
+        trackPath = buildTrackPath(d.track.path);
+        checkpoints = d.track.checkpoints || [];
+        finish = d.track.finish || null;
+        obstacles = d.track.obstacles || [];
+        trackNameEl.textContent = d.track.name ? `Pista: ${d.track.name}` : "";
+      }
+
+      pickups = d.pickups || [];
+      pickupState.clear();
+      pickups.forEach(p => pickupState.set(p.id, true));
+
+      applyStateUI();
+    });
+
+    socket.on("playerJoined", (p) => {
+      if (p.id === myId) {
+        myName = p.name || myName;
+        myCar.color = p.color;
+        myCar.type = p.carType || myCar.type;
+        myCar.x = p.x;
+        myCar.y = p.y;
+        myCar.vx = 0; myCar.vy = 0;
+        myCar.angle = p.angle || 0;
+
+        amParticipant = true;
+        isSpectator = false;
+
+        cam.x = myCar.x;
+        cam.y = myCar.y;
+        cam.angle = myCar.angle + Math.PI / 2;
+      } else {
+        others.set(p.id, { ...p, tx: p.x, ty: p.y, tangle: p.angle, ping: 0 });
+      }
+      applyStateUI();
+    });
+
+    socket.on("playerMoved", (p) => {
+      if (p.id === myId) return;
+      if (!others.has(p.id)) others.set(p.id, { id: p.id, name: "?", color: "#999", tx: p.x, ty: p.y, tangle: p.angle, x: p.x, y: p.y, angle: p.angle, ping: 0 });
+      const o = others.get(p.id);
+      o.tx = p.x; o.ty = p.y; o.tangle = p.angle;
+    });
+
+    socket.on("playerDisconnected", (d) => {
+      others.delete(d.id);
+      if (followingPlayerId === d.id) followingPlayerId = null;
+    });
+
+    socket.on("playerLeft", (d) => {
+      if (d.id !== myId) others.delete(d.id);
+      if (d.id === myId) {
+        amParticipant = false;
+        isSpectator = true;
+        applyStateUI();
+      }
+    });
+
+    socket.on("raceStats", (d) => {
+      if (d && d.stats) {
+        renderLB(d.stats);
+        d.stats.forEach(s => {
+            if(others.has(s.id)) {
+                others.get(s.id).ping = s.ping || 0;
+            }
+        });
+      }
+    });
+
+    socket.on("pickupState", (d) => {
+      pickupState.set(d.id, !!d.active);
+    });
+
+    socket.on("applyEffect", (e) => {
+      const now = Date.now();
+      if (e.type === "boost") {
+        boostUntil = Math.max(boostUntil, now + e.durationMs);
+        boostMult = e.mult ?? 1.25;
+        const boostImpulse = 600;
+        myCar.vx += Math.cos(myCar.angle) * boostImpulse;
+        myCar.vy += Math.sin(myCar.angle) * boostImpulse;
+        showWarning("BOOST");
+      } else {
+        slowUntil = Math.max(slowUntil, now + e.durationMs);
+        slowMult = e.mult ?? 0.65;
+        showWarning("LENTO");
+      }
+    });
+
+    let lastT = 0;
+    function loop(t) {
+      const dt = Math.min(0.05, ((t - lastT) / 1000) || 0);
+      lastT = t;
+
+      if (gameState === "COUNTDOWN") {
+        countdownEl.textContent = Math.max(0, Math.ceil((countdownEndAt - Date.now()) / 1000));
+      }
+
+      others.forEach(o => {
+        o.x = (o.x ?? o.tx) + ((o.tx ?? o.x) - (o.x ?? o.tx)) * 0.2;
+        o.y = (o.y ?? o.ty) + ((o.ty ?? o.y) - (o.y ?? o.ty)) * 0.2;
+        o.angle = o.tangle;
+      });
+
+      if (gameState === "RACING" && amParticipant) {
+        const now = Date.now();
+        const diff = now - lapStartTime;
+
+        const min = Math.floor(diff / 60000);
+        const sec = Math.floor((diff % 60000) / 1000);
+        const ms = Math.floor(diff % 1000);
+        document.getElementById("timeUI").textContent =
+          `${min}:${String(sec).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+
+        const stats = CAR_STATS[myCar.type] || CAR_STATS.agile;
+        const eff = getEffectMult();
+
+        // ===== FÍSICA CORRIGIDA =====
+        
+        // 1. Controlo do Throttle (Acelerar/Travar)
+        let throttle = 0;
+        if (keys["w"] || keys["ArrowUp"]) throttle = 1;
+        if (keys["s"] || keys["ArrowDown"]) throttle = -0.5;
+
+        // 2. Controlo de Direção
+        let steer = 0;
+        if (keys["a"] || keys["ArrowLeft"]) steer = -1;
+        if (keys["d"] || keys["ArrowRight"]) steer = 1;
+
+        // 3. Calcular velocidade atual
+        const currentSpeed = Math.sqrt(myCar.vx * myCar.vx + myCar.vy * myCar.vy);
+        
+        // 4. Rotação (só vira se tiver velocidade)
+        if (currentSpeed > 50) { // Mínimo 50 unidades/s para virar
+          myCar.angle += steer * stats.turnSpeed * dt * Math.min(1, currentSpeed / 500);
+        }
+
+        // 5. Aceleração (força na direção do carro)
+        const forwardX = Math.cos(myCar.angle);
+        const forwardY = Math.sin(myCar.angle);
+        
+        const accel = throttle * stats.power * eff;
+        myCar.vx += forwardX * accel * dt;
+        myCar.vy += forwardY * accel * dt;
+
+        // 6. Aplicar Drag (resistência do ar)
+        myCar.vx *= stats.drag;
+        myCar.vy *= stats.drag;
+
+        // 7. Aderência Lateral (Grip) - CORRIGIDO
+        if (currentSpeed > 10) {
+          // Vetor "lateral" (perpendicular à frente do carro)
+          const rightX = -Math.sin(myCar.angle);
+          const rightY = Math.cos(myCar.angle);
+          
+          // Velocidade lateral (quanto o carro está a escorregar de lado)
+          const lateralVel = myCar.vx * rightX + myCar.vy * rightY;
+          
+          // Aplicar grip: quanto maior o grip, mais reduz a velocidade lateral
+          const gripStrength = stats.grip;
+          myCar.vx -= rightX * lateralVel * gripStrength;
+          myCar.vy -= rightY * lateralVel * gripStrength;
+        }
+
+        // 8. Limitar velocidade máxima
+        const speed = Math.sqrt(myCar.vx * myCar.vx + myCar.vy * myCar.vy);
+        const maxSpd = stats.maxSpeed * eff;
+        if (speed > maxSpd) {
+          const ratio = maxSpd / speed;
+          myCar.vx *= ratio;
+          myCar.vy *= ratio;
+        }
+
+        // 9. Atualizar posição
+        let nx = myCar.x + myCar.vx * dt;
+        let ny = myCar.y + myCar.vy * dt;
+        
+        // 10. Colisão com obstáculos
+        for (const obs of obstacles) {
+          const dx = nx - obs.x;
+          const dy = ny - obs.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const minDist = 18 + obs.r;
+
+          if (dist < minDist) {
+            // Empurrar para fora
+            const pushAngle = Math.atan2(dy, dx);
+            nx = obs.x + Math.cos(pushAngle) * minDist;
+            ny = obs.y + Math.sin(pushAngle) * minDist;
+            
+            // Ricochete simples
+            const normalX = dx / dist;
+            const normalY = dy / dist;
+            const dotProduct = myCar.vx * normalX + myCar.vy * normalY;
+            
+            myCar.vx = (myCar.vx - 2 * dotProduct * normalX) * 0.6;
+            myCar.vy = (myCar.vy - 2 * dotProduct * normalY) * 0.6;
+            
+            showWarning("BATIDA!");
+          }
+        }
+
+        // 11. Clamping aos limites do mapa
+        myCar.x = Math.max(0, Math.min(MAP_W, nx));
+        myCar.y = Math.max(0, Math.min(MAP_H, ny));
+
+        // 12. Verificar se está na pista
+        ctx.lineWidth = trackWidth;
+        const onRoad = ctx.isPointInStroke(trackPath, myCar.x, myCar.y);
+
+        if (!onRoad) {
+          myCar.vx *= 0.94; // Mais atrito fora da pista
+          myCar.vy *= 0.94;
+          offroadTime += dt;
+        } else {
+          offroadTime = Math.max(0, offroadTime - dt * 2);
+        }
+
+        // 13. Reset se ficar muito tempo fora
+        if (offroadTime > 2.5) {
+          myCar.vx = 0;
+          myCar.vy = 0;
+          offroadTime = 0;
+          const cp = checkpoints[Math.max(0, currentCheckpoint - 1)];
+          if (cp) {
+            myCar.x = cp.x + cp.w / 2;
+            myCar.y = cp.y + cp.h / 2;
+          }
+          showWarning("RESET - FORA DA PISTA");
+        }
+
+        // 14. Pickups
+        for (const pk of pickups) {
+          if (!pickupState.get(pk.id)) continue;
+          const dx = myCar.x - pk.x;
+          const dy = myCar.y - pk.y;
+          const r = 18 + pk.r;
+          if ((dx * dx + dy * dy) <= r * r) socket.emit("tryPickup", { pickupId: pk.id });
+        }
+
+        // 15. Checkpoints
+        if (currentCheckpoint < checkpoints.length) {
+          const cp = checkpoints[currentCheckpoint];
+          if (myCar.x > cp.x && myCar.x < cp.x + cp.w && myCar.y > cp.y && myCar.y < cp.y + cp.h && onRoad) {
+            currentCheckpoint += 1;
+            showWarning(`CP ${currentCheckpoint}/${checkpoints.length}`);
+          }
+        }
+
+        // 16. Meta
+        if (
+          currentCheckpoint >= checkpoints.length &&
+          finish && finish.x != null &&
+          myCar.x > finish.x && myCar.x < finish.x + finish.w &&
+          myCar.y > finish.y && myCar.y < finish.y + finish.h &&
+          onRoad
+        ) {
+          lapsCompleted += 1;
+          currentCheckpoint = 0;
+          socket.emit("lapFinished", { lapMs: diff });
+          lapStartTime = Date.now();
+          showWarning(`VOLTA ${lapsCompleted} COMPLETA!`);
+        }
+
+        socket.emit("playerMovement", { x: myCar.x, y: myCar.y, angle: myCar.angle, pingTimestamp: Date.now() });
+
+        document.getElementById("lapUI").textContent = `VOLTA: ${lapsCompleted}/${totalLaps}`;
+        document.getElementById("cpUI").textContent = `CP: ${currentCheckpoint}/${checkpoints.length}`;
+      }
+
+      // Câmara
+      let targetX, targetY, targetAngle, targetZoom = 1.0;
+
+      if (amParticipant) {
+        targetX = myCar.x;
+        targetY = myCar.y;
+        targetAngle = myCar.angle + Math.PI / 2;
+        targetZoom = 1.0;
+      } else {
+        if (cameraMode === 0) {
+          targetX = MAP_W / 2;
+          targetY = MAP_H / 2;
+          targetAngle = 0;
+          targetZoom = 0.15; 
+        } else {
+          const playerIds = Array.from(others.keys());
+          
+          if (playerIds.length > 0) {
+            if (!followingPlayerId || !others.has(followingPlayerId)) {
+              followingPlayerId = playerIds[0];
+            }
+            if (keys["ArrowLeft"] || keys["a"]) {
+              const idx = playerIds.indexOf(followingPlayerId);
+              followingPlayerId = playerIds[(idx - 1 + playerIds.length) % playerIds.length];
+              keys["ArrowLeft"] = false; keys["a"] = false;
+              const p = others.get(followingPlayerId);
+              showWarning(`A seguir: ${p?.name || "?"}`);
+              updateSpectatorUI();
+            }
+            if (keys["ArrowRight"] || keys["d"]) {
+              const idx = playerIds.indexOf(followingPlayerId);
+              followingPlayerId = playerIds[(idx + 1) % playerIds.length];
+              keys["ArrowRight"] = false; keys["d"] = false;
+              const p = others.get(followingPlayerId);
+              showWarning(`A seguir: ${p?.name || "?"}`);
+              updateSpectatorUI();
+            }
+            const p = others.get(followingPlayerId);
+            if (p) {
+              targetX = p.x; targetY = p.y; targetAngle = p.angle + Math.PI / 2;
+            } else {
+              targetX = MAP_W / 2; targetY = MAP_H / 2; targetAngle = 0;
+            }
+          } else {
+            targetX = MAP_W / 2; targetY = MAP_H / 2; targetAngle = 0;
+          }
+          targetZoom = 1.0;
+        }
+      }
+
+      const camPosTau = 0.08;
+      const camAngTau = 0.12;
+      const posAlpha = 1 - Math.exp(-dt / camPosTau);
+      const angAlpha = 1 - Math.exp(-dt / camAngTau);
+
+      cam.x = lerp(cam.x, targetX, posAlpha);
+      cam.y = lerp(cam.y, targetY, posAlpha);
+      cam.angle = lerpAngle(cam.angle, targetAngle, angAlpha);
+      
+      const finalZoom = targetZoom * manualZoom;
+      cameraZoom = lerp(cameraZoom, finalZoom, posAlpha);
+
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function drawCar(x, y, a, c) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(a);
+      ctx.fillStyle = c;
+      ctx.fillRect(-16, -10, 32, 20);
+      ctx.fillStyle = "#222";
+      ctx.fillRect(-12, -6, 8, 12);
+      ctx.fillStyle = "yellow";
+      ctx.fillRect(12, -8, 4, 4);
+      ctx.fillRect(12, 4, 4, 4);
+      ctx.restore();
+    }
+
+    function drawTag(x, y, text, ping) {
+      if (!text) return;
+      
+      let display = text;
+      if(ping !== undefined) {
+         display = `${text} [${ping}ms]`;
+      }
+
+      ctx.save();
+      ctx.translate(x, y - 28);
+      ctx.rotate(cam.angle);
+
+      ctx.font = "900 12px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "rgba(0,0,0,0.85)";
+      ctx.strokeText(display, 0, 0);
+
+      ctx.fillStyle = "#fff";
+      if(ping > 100) ctx.fillStyle = "#ffeb3b";
+      if(ping > 200) ctx.fillStyle = "#ff5252";
+      
+      ctx.fillText(display, 0, 0);
+
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.fillStyle = "#2e7d32";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.scale(cameraZoom, cameraZoom);
+      ctx.rotate(-cam.angle);
+      ctx.translate(-cam.x, -cam.y);
+
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      ctx.lineWidth = trackWidth + 24;
+      ctx.strokeStyle = "#c62828";
+      ctx.stroke(trackPath);
+
+      ctx.lineWidth = trackWidth + 24;
+      ctx.strokeStyle = "#fff";
+      ctx.setLineDash([40, 40]);
+      ctx.stroke(trackPath);
+      ctx.setLineDash([]);
+
+      ctx.lineWidth = trackWidth;
+      ctx.strokeStyle = "#444";
+      ctx.stroke(trackPath);
+
+      checkpoints.forEach((cp, i) => {
+        ctx.fillStyle = (i === currentCheckpoint) ? "rgba(0,255,0,0.3)" : "rgba(255,255,255,0.08)";
+        ctx.fillRect(cp.x, cp.y, cp.w, cp.h);
+        if (i === currentCheckpoint) {
+          ctx.strokeStyle = "#0f0";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(cp.x, cp.y, cp.w, cp.h);
+        }
+      });
+
+      if (finish && finish.x != null) {
+        ctx.fillStyle = "rgba(255,215,0,0.35)";
+        ctx.fillRect(finish.x, finish.y, finish.w, finish.h);
+        ctx.strokeStyle = "gold";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(finish.x, finish.y, finish.w, finish.h);
+      }
+
+      for (const pk of pickups) {
+        if (!pickupState.get(pk.id)) continue;
+        ctx.beginPath();
+        ctx.arc(pk.x, pk.y, pk.r, 0, Math.PI * 2);
+        ctx.fillStyle = pk.type === "boost" ? "rgba(0,200,255,0.95)" : "rgba(180,0,255,0.95)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.35)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      
+      for (const obs of obstacles) {
+        ctx.beginPath();
+        ctx.arc(obs.x, obs.y, obs.r, 0, Math.PI * 2);
+        ctx.fillStyle = "#8d6e63"; 
+        ctx.fill();
+        ctx.strokeStyle = "#3e2723";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        ctx.fillStyle = "rgba(0,0,0,0.2)";
+        ctx.beginPath();
+        ctx.arc(obs.x - obs.r*0.3, obs.y - obs.r*0.3, obs.r*0.4, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      others.forEach(o => {
+        drawCar(o.x, o.y, o.angle, o.color);
+        drawTag(o.x, o.y, o.name, o.ping);
+      });
+
+      if (amParticipant) {
+        drawCar(myCar.x, myCar.y, myCar.angle, myCar.color);
+        drawTag(myCar.x, myCar.y, myName);
+      }
+
+      ctx.restore();
+    }
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
