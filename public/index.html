@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ever Techs - Portal de Acesso</title>
+    <style>
+        :root {
+            --color-bg-primary: #0f172a;
+            --color-bg-secondary: #1e293b;
+            --color-bg-card: #334155;
+            --color-text-primary: #f1f5f9;
+            --color-text-secondary: #cbd5e1;
+            --color-accent: #38bdf8;
+            --color-accent-hover: #0ea5e9;
+            --color-accent-dark: #0284c7;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%);
+            color: var(--color-text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-dark) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--color-text-secondary);
+            font-weight: 400;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 32px;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: var(--color-bg-card);
+            border-radius: 16px;
+            padding: 40px 32px;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+            cursor: pointer;
+            text-decoration: none;
+            display: block;
+        }
+
+        .card:hover {
+            transform: translateY(-8px);
+            border-color: var(--color-accent);
+            box-shadow: 0 20px 40px rgba(56, 189, 248, 0.2);
+        }
+
+        .card-icon {
+            width: 64px;
+            height: 64px;
+            background: var(--color-accent);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+            font-size: 2rem;
+        }
+
+        .card-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--color-text-primary);
+        }
+
+        .card-description {
+            font-size: 1rem;
+            color: var(--color-text-secondary);
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .card-url {
+            font-size: 0.875rem;
+            color: var(--color-accent);
+            font-family: 'Courier New', monospace;
+            padding: 8px 12px;
+            background: rgba(56, 189, 248, 0.1);
+            border-radius: 6px;
+            display: inline-block;
+        }
+
+        .arrow {
+            display: inline-block;
+            margin-left: 8px;
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover .arrow {
+            transform: translateX(4px);
+        }
+
+        footer {
+            text-align: center;
+            padding-top: 40px;
+            color: var(--color-text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #22c55e;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2.5rem;
+            }
+
+            .subtitle {
+                font-size: 1rem;
+            }
+
+            .cards-grid {
+                grid-template-columns: 1fr;
+                gap: 24px;
+            }
+
+            .card {
+                padding: 32px 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Ever Techs</h1>
+            <p class="subtitle">Portal de Acesso às Plataformas</p>
+        </header>
+
+        <main>
+            <div class="cards-grid">
+                <a href="https://race.ever-techs.com" class="card" target="_blank" rel="noopener noreferrer">
+                    <div class="card-icon">🏁</div>
+                    <h2 class="card-title">Race Platform</h2>
+                    <p class="card-description">
+                        Aceda à plataforma Race para gestão e monitorização de corridas e eventos desportivos.
+                    </p>
+                    <div class="card-url">
+                        <span class="status-indicator"></span>
+                        race.ever-techs.com
+                        <span class="arrow">→</span>
+                    </div>
+                </a>
+
+                <a href="https://betatwo.ever-techs.com" class="card" target="_blank" rel="noopener noreferrer">
+                    <div class="card-icon">🚀</div>
+                    <h2 class="card-title">Beta Two</h2>
+                    <p class="card-description">
+                        Explore a versão beta da nossa segunda plataforma com funcionalidades em desenvolvimento.
+                    </p>
+                    <div class="card-url">
+                        <span class="status-indicator"></span>
+                        betatwo.ever-techs.com
+                        <span class="arrow">→</span>
+                    </div>
+                </a>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2026 Ever Techs. Todos os direitos reservados.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
