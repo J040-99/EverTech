@@ -4,8 +4,12 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const { Server } = require("socket.io");
+const helmet = require('helmet');
+const compression = require('compression');
 
-const PORT = 8000;
+// --- CONSTANTES ---
+const PORT = process.env.PORT || 8000;
+const HTTPS_PORT = process.env.HTTPS_PORT || 8443;
 const COUNTDOWN_SECONDS = 15;
 const TOTAL_LAPS = 3;
 
@@ -21,8 +25,34 @@ const PICKUP_RESPAWN_MS = 5000;
 const GAME_STATE = { WAITING: "WAITING", COUNTDOWN: "COUNTDOWN", RACING: "RACING" };
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+// --- SEGURANÇA E PERFORMANCE ---
+app.use(helmet({ contentSecurityPolicy: false })); // Ajustar CSP conforme necessidade do cliente
+app.use(compression());
+
+// --- GESTÃO DE SERVIDOR HTTP/HTTPS ---
+let server;
+// Verificar certificados SSL (reutilizando padrão dos outros projetos)
+const sslKeyPath = path.join(__dirname, '..', 'ssl', 'private-key.pem');
+const sslCertPath = path.join(__dirname, '..', 'ssl', 'certificate.pem');
+
+if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
+    const sslOptions = {
+        key: fs.readFileSync(sslKeyPath),
+        cert: fs.readFileSync(sslCertPath)
+    };
+    server = https.createServer(sslOptions, app);
+    console.log(`🔒 Modo Seguro (HTTPS) ativado`);
+} else {
+    server = http.createServer(app);
+    console.warn(`⚠️ Modo Inseguro (HTTP) - Certificados não encontrados`);
+}
+
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 
 app.use(express.static(__dirname));
 
@@ -565,6 +595,8 @@ function startRace() {
       gameState = GAME_STATE.WAITING;
       stopRaceTicker();
       emitLobby();
+      // Limpeza de memória: Resetar ordem de chegada ao fim da corrida
+      finishOrder = [];
     }
   }, 250);
 }
@@ -774,6 +806,25 @@ io.on("connection", (socket) => {
     }
 
     emitLobby();
+  });
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    uptime: process.uptime(),
+    players: Object.keys(players).length,
+    gameState 
+  });
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM recebido, a encerrar gracefully...');
+  server.close(() => {
+    console.log('Servidor encerrado');
+    process.exit(0);
   });
 });
 
