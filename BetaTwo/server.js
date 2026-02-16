@@ -46,79 +46,74 @@ let files = [];
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
 
-// --- ROTA DE UPLOAD ROBUSTA ---\r
-// Aceita raw body até 100MB (embora usemos 5MB no frontend)\r
-app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', limit: '100mb' }), async (req, res) => {\r
-    try {\r
-        const { filename, chunk_number, total_chunks, original_name, key, permission } = req.query;\r
-        \r
-        // ✅ Validação melhorada\r
-        if (!filename || !chunk_number || !total_chunks || !original_name || !req.body) {\r
-            return res.status(400).json({ error: 'Dados inválidos ou incompletos' });\r
-        }\r
-\r
-        const chunkIndex = parseInt(chunk_number);\r
-        const total = parseInt(total_chunks);\r
-        const filePath = path.join(UPLOAD_DIR, filename);\r
-        const tempPath = `${filePath}.part${chunkIndex}`;\r
-\r
-        // Gravar o pedaço temporariamente\r
-        fs.writeFileSync(tempPath, req.body);\r
-\r
-        // Verificar se todos os pedaços chegaram para reconstruir\r
-        // (Lógica simplificada: num cenário real, usaríamos um registo de estado)\r
-        // Aqui assumimos que o cliente envia sequencialmente ou que verificamos o final\r
-        \r
-        // Se for o último chunk, tentar reconstruir (isto é uma simplificação)\r
-        // Num sistema robusto, verificaríamos se todos os ficheiros .part existem\r
-        if (chunkIndex === total - 1) {\r
-             const finalFile = fs.createWriteStream(filePath);\r
-             for (let i = 0; i < total; i++) {\r
-                 const part = `${filePath}.part${i}`;\r
-                 if (fs.existsSync(part)) {\r
-                     const data = fs.readFileSync(part);\r
-                     finalFile.write(data);\r
-                     fs.unlinkSync(part); // Limpar chunks\r
-                 }\r
-             }\r
-             finalFile.end();\r
-             \r
-             // Adicionar à "base de dados"\r
-             files.push({\r
-                 id: Date.now().toString(),\r
-                 filename: filename,\r
-                 originalName: original_name,\r
-                 ownerKey: key,\r
-                 size: fs.statSync(filePath).size,\r
-                 mimeType: getMimeType(filename),\r
-                 uploadDate: new Date()\r
-             });\r
-             \r
-             return res.json({ success: true, message: 'Upload completo' });\r
-        }\r
-\r
-        res.json({ success: true, message: `Chunk ${chunkIndex} recebido` });\r
-\r
-    } catch (error) {\r
-        console.error("Erro no upload:", error);\r
-        res.status(500).json({ error: 'Falha no servidor ao gravar pedaço.' });\r
-    }\r
-});
-
 function getMimeType(filename) {
     const ext = path.extname(filename).toLowerCase();
-    if (['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext)) return 'video/mp4'; // Força video/mp4 para tentar compatibilidade
+    if (['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext)) return 'video/mp4';
     if (['.jpg', '.png', '.jpeg', '.gif', '.webp'].includes(ext)) return 'image/jpeg';
     return 'application/octet-stream';
 }
+
+// --- ROTA DE UPLOAD ROBUSTA ---
+// Aceita raw body até 100MB
+app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', limit: '100mb' }), async (req, res) => {
+    try {
+        const { filename, chunk_number, total_chunks, original_name, key } = req.query;
+        
+        // Validação melhorada
+        if (!filename || !chunk_number || !total_chunks || !original_name || !req.body) {
+            return res.status(400).json({ error: 'Dados inválidos ou incompletos' });
+        }
+
+        const chunkIndex = parseInt(chunk_number);
+        const total = parseInt(total_chunks);
+        const filePath = path.join(UPLOAD_DIR, filename);
+        const tempPath = `${filePath}.part${chunkIndex}`;
+
+        // Gravar o pedaço temporariamente
+        fs.writeFileSync(tempPath, req.body);
+        
+        // Se for o último chunk, tentar reconstruir
+        if (chunkIndex === total - 1) {
+             const finalFile = fs.createWriteStream(filePath);
+             for (let i = 0; i < total; i++) {
+                 const part = `${filePath}.part${i}`;
+                 if (fs.existsSync(part)) {
+                     const data = fs.readFileSync(part);
+                     finalFile.write(data);
+                     fs.unlinkSync(part); // Limpar chunks
+                 }
+             }
+             finalFile.end();
+             
+             // Adicionar à "base de dados"
+             files.push({
+                 id: Date.now().toString(),
+                 filename: filename,
+                 originalName: original_name,
+                 ownerKey: key,
+                 size: fs.statSync(filePath).size,
+                 mimeType: getMimeType(filename),
+                 uploadDate: new Date()
+             });
+             
+             return res.json({ success: true, message: 'Upload completo' });
+        }
+
+        res.json({ success: true, message: `Chunk ${chunkIndex} recebido` });
+
+    } catch (error) {
+        console.error("Erro no upload:", error);
+        res.status(500).json({ error: 'Falha no servidor ao gravar pedaço.' });
+    }
+});
 
 // Rotas da API
 app.get('/api/files', (req, res) => res.json(files.filter(f => f.ownerKey === req.query.key)));
 app.get('/api/files/:id', (req, res) => {
     const f = files.find(x => x.id === req.params.id);
     if (!f) return res.status(404).json({});
-    const { ownerKey, ...public } = f;
-    res.json(public);
+    const { ownerKey, ...publicData } = f;
+    res.json(publicData);
 });
 app.delete('/api/files/:id', (req, res) => {
     const key = req.query.key || req.headers['x-owner-key']; // Aceita query ou header
