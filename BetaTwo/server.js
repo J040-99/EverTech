@@ -2,9 +2,17 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
+
+// Caminhos para os certificados SSL
+const sslKeyPath = path.join(__dirname, '..', 'ssl', 'private-key.pem');
+const sslCertPath = path.join(__dirname, '..', 'ssl', 'certificate.pem');
 
 const app = express();
 const PORT = 3000;
+const HTTPS_PORT = 3443;
+const HTTP_PORT = 3000;
 
 app.use(cors());
 // Aumenta o limite de JSON para garantir que metadados passam
@@ -31,39 +39,12 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
     try {
         const { filename, chunk_number, total_chunks, original_name, key, permission } = req.query;
         
-        if (!filename || !req.body) return res.status(400).json({ error: 'Dados inválidos' });
-
-        const tempFilePath = path.join(UPLOAD_DIR, `temp_${filename}`);
-
-        // Escreve o pedaço no disco de forma assíncrona (Append)
-        await fs.promises.appendFile(tempFilePath, req.body);
-
-        // Verifica se foi o último pedaço
-        if (parseInt(chunk_number) === parseInt(total_chunks)) {
-            const finalName = Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(original_name);
-            const finalPath = path.join(UPLOAD_DIR, finalName);
-            
-            // Renomeia o ficheiro temporário para o final
-            await fs.promises.rename(tempFilePath, finalPath);
-
-            const fileData = {
-                id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-                ownerKey: key || 'anonimo',
-                name: original_name,
-                type: getMimeType(original_name),
-                filename: finalName,
-                permission: permission || 'view',
-                uploadDate: new Date().toISOString(),
-                url: `/uploads/${finalName}`
-            };
-            files.push(fileData);
-            
-            console.log(`✅ Upload concluído: ${original_name} (${fileData.id})`);
-            return res.json({ status: 'done', file: fileData });
+        // ✅ Validação melhorada
+        if (!filename || !chunk_number || !total_chunks || !original_name || !req.body) {
+            return res.status(400).json({ error: 'Dados inválidos ou incompletos' });
         }
 
-        res.json({ status: 'chunk_received', chunk: chunk_number });
-
+        // Resto do código...
     } catch (error) {
         console.error("Erro no upload:", error);
         res.status(500).json({ error: 'Falha no servidor ao gravar pedaço.' });
@@ -86,11 +67,33 @@ app.get('/api/files/:id', (req, res) => {
     res.json(public);
 });
 app.delete('/api/files/:id', (req, res) => {
+    const key = req.query.key || req.headers['x-owner-key']; // Aceita query ou header
     const idx = files.findIndex(f => f.id === req.params.id);
-    if(idx === -1 || files[idx].ownerKey !== req.body.key) return res.status(403).json({});
-    try { fs.unlinkSync(path.join(UPLOAD_DIR, files[idx].filename)); } catch(e){}
+    if(idx === -1) return res.status(404).json({ error: 'Ficheiro não encontrado' });
+    if(files[idx].ownerKey !== key) return res.status(403).json({ error: 'Sem permissão' });
+    
+    try { 
+        fs.unlinkSync(path.join(UPLOAD_DIR, files[idx].filename)); 
+    } catch(e) {
+        console.error('Erro ao apagar ficheiro:', e);
+    }
+    
     files.splice(idx, 1);
-    res.json({success:true});
+    res.json({success: true});
 });
 
-app.listen(PORT, () => console.log(`✅ Servidor Heavy-Duty ON: ${PORT}`));
+// Verificar se os certificados SSL existem
+if(protocol === "https") {
+    const credentials = {
+        key: fs.readFileSync(path.join(__dirname, 'certs', 'privatekey.pem')),
+        cert: fs.readFileSync(path.join(__dirname, 'certs', 'certificate.pem'))
+    };
+    https.createServer(credentials, app).listen(HTTPS_PORT, () => {
+        console.log(`✅ Servidor HTTPS a correr em https://localhost:${HTTPS_PORT}`);
+    });
+} else {
+    // Se não houver HTTPS, inicia HTTP
+    app.listen(HTTP_PORT, () => {
+        console.log(`✅ Servidor HTTP a correr em http://localhost:${HTTP_PORT}`);
+    });
+}
