@@ -116,10 +116,35 @@
     #exitSpectatorBtn.visible {
       display: block;
     }
+
+    /* Back to Hub Button */
+    .back-hub-btn {
+      position: absolute;
+      top: 15px;
+      left: 15px;
+      pointer-events: auto;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #ccc;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      transition: all 0.2s;
+      z-index: 1000;
+    }
+    .back-hub-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+      border-color: #fff;
+    }
   </style>
 </head>
 <body>
   <div id="ui">
+    <a href="https://hub.ever-techs.com" class="back-hub-btn">⬅ Voltar ao Hub</a>
+
     <div id="topbar">
       <div id="lapUI">VOLTA: 0/3</div>
       <div id="timeUI" class="mono">00:00.000</div>
