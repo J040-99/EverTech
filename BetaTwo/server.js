@@ -76,6 +76,13 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
         // CORREÇÃO: chunkIndex é 1-based (vem do cliente como 1, 2, 3...)
         if (chunkIndex === total) {
              const finalFile = fs.createWriteStream(filePath);
+             
+             // Cria uma Promise para esperar que o writeStream termine
+             const writeFinished = new Promise((resolve, reject) => {
+                 finalFile.on('finish', resolve);
+                 finalFile.on('error', reject);
+             });
+
              // CORREÇÃO: Loop de 1 até total para apanhar as partes corretas
              for (let i = 1; i <= total; i++) {
                  const part = `${filePath}.part${i}`;
@@ -86,6 +93,9 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
                  }
              }
              finalFile.end();
+             
+             // Espera que o ficheiro esteja completamente escrito antes de obter stats
+             await writeFinished;
              
              // Adicionar à "base de dados"
              files.push({
