@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pagamento Concluído</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="return.js" defer></script>
+    <style>
+        body { background: #121212; color: #fff; font-family: sans-serif; display:flex; justify-content:center; align-items:center; min-height:100vh; margin:0; }
+        .card { background: #1e1e1e; padding: 40px; border-radius: 12px; text-align: center; max-width: 500px; border: 1px solid #333; }
+        .hidden { display: none; }
+        h3 { color: #00e5ff; }
+        .btn { display: inline-block; margin-top: 20px; padding: 10px 20px; background: #00e5ff; color: #000; text-decoration: none; border-radius: 6px; font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <div id="success" class="card hidden">
+        <div style="font-size: 50px; margin-bottom: 20px;">✅</div>
+        <h3>Pagamento com Sucesso!</h3>
+        <p>
+          Obrigado pela subscrição! Um email de confirmação foi enviado para <span id="customer-email" style="color:#aaa"></span>.
+        </p>
+        <p>A tua conta foi atualizada para <b>Premium</b>.</p>
+        <a href="/" class="btn">Voltar ao Meus Ficheiros</a>
+    </div>
+    <div id="loading" class="card">
+        <h3>A verificar pagamento...</h3>
+    </div>
+  </body>
+</html>
