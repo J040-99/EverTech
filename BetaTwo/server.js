@@ -59,6 +59,8 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
       // Encontrar utilizador pelo email do pagamento original e remover premium
       if (refund.billing_details && refund.billing_details.email) {
           removePremiumByEmail(refund.billing_details.email);
+      } else if (refund.receipt_email) {
+          removePremiumByEmail(refund.receipt_email);
       } else {
           // Tentar buscar o PaymentIntent para ter o email
           const paymentIntentId = refund.payment_intent;
@@ -66,6 +68,8 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
               const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
               if (pi.receipt_email) {
                   removePremiumByEmail(pi.receipt_email);
+              } else if (pi.charges && pi.charges.data[0] && pi.charges.data[0].billing_details) {
+                  removePremiumByEmail(pi.charges.data[0].billing_details.email);
               }
           } catch(e) { console.error("Erro ao buscar PI do reembolso:", e); }
       }
@@ -203,6 +207,25 @@ app.post('/api/auth/login', (req, res) => {
         } else {
             return res.status(401).json({ error: 'Password incorreta.' });
         }
+    }
+});
+
+// ENDPOINT DE ADMINISTRAÇÃO - Remover Premium manualmente (TEMPORÁRIO)
+app.post('/api/admin/revoke-premium', (req, res) => {
+    const { key, adminSecret } = req.body;
+    
+    // Proteção simples - em produção, usar senha forte
+    if (adminSecret !== 'EverTech2026Admin') {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    const user = users.find(u => u.key === key);
+    if (user) {
+        user.isPremium = false;
+        saveDB();
+        return res.json({ success: true, message: `Premium removido para ${key}` });
+    } else {
+        return res.status(404).json({ error: 'Utilizador não encontrado' });
     }
 });
 
@@ -443,7 +466,8 @@ app.get('/api/files/:id', (req, res) => {
         type: f.mimeType, 
         uploadDate: f.uploadDate,
         permission: f.permission || 'view',
-        url: `/uploads/${f.filename}` 
+        url: `/uploads/${f.filename}`,
+        filename: f.filename
     };
     
     res.json(publicData);
