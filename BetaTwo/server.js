@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
+const stripe = require('stripe')('sk_test_51T1qYeLTrivMFSU9e4B04X2045504543504354350435'); // Use environment variable in production!
 
 // Caminhos para os certificados SSL (Unificados)
 const sslKeyPath = path.join(__dirname, '..', 'ssl', 'private-key.pem');
@@ -42,7 +43,9 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
 // --- PERSISTÊNCIA DE DADOS ---
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const DB_PATH = path.join(__dirname, 'database.json');
+const USERS_DB_PATH = path.join(__dirname, 'users.json');
 let files = [];
+let users = []; // Simple users DB: { key: "...", isPremium: false }
 
 // Garantir diretório de uploads
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
@@ -51,13 +54,13 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
 function loadDB() {
     try {
         if (fs.existsSync(DB_PATH)) {
-            const data = fs.readFileSync(DB_PATH, 'utf8');
-            files = JSON.parse(data);
-            console.log(`📂 Base de dados carregada: ${files.length} ficheiros.`);
+            files = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+        }
+        if (fs.existsSync(USERS_DB_PATH)) {
+            users = JSON.parse(fs.readFileSync(USERS_DB_PATH, 'utf8'));
         }
     } catch (e) {
         console.error('Erro ao carregar base de dados:', e);
-        files = [];
     }
 }
 loadDB();
@@ -66,9 +69,16 @@ loadDB();
 function saveDB() {
     try {
         fs.writeFileSync(DB_PATH, JSON.stringify(files, null, 2));
+        fs.writeFileSync(USERS_DB_PATH, JSON.stringify(users, null, 2));
     } catch (e) {
         console.error('Erro ao salvar base de dados:', e);
     }
+}
+
+// Helper para verificar premium
+function isUserPremium(key) {
+    const user = users.find(u => u.key === key);
+    return user && user.isPremium;
 }
 
 // Servir index.html com Open Graph Tags dinâmicas (SSR Básico)
@@ -133,6 +143,73 @@ app.get('/', (req, res) => {
     res.send(html);
 });
 
+// --- STRIPE PAYMENTS ---
+app.post('/create-checkout-session', async (req, res) => {
+    const { key } = req.body; // User key passed from frontend
+    
+    try {
+        const session = await stripe.checkout.sessions.create({
+            ui_mode: 'embedded',
+            line_items: [
+                {
+                    // Provide the exact Price ID (for example, pr_1234) of the product you want to sell
+                    price_data: {
+                        currency: 'eur',
+                        product_data: {
+                            name: 'EverTech Cloud Premium',
+                            description: 'No ads, unlimited uploads',
+                        },
+                        unit_amount: 500, // 5.00 EUR
+                    },
+                    quantity: 1,
+                },
+            ],
+            mode: 'payment',
+            return_url: `${req.headers.origin}/return.html?session_id={CHECKOUT_SESSION_ID}&key=${key}`,
+        });
+        
+        res.send({clientSecret: session.client_secret});
+    } catch (e) {
+        res.status(500).json({error: e.message});
+    }
+});
+
+app.get('/session-status', async (req, res) => {
+    try {
+        const session = await stripe.checkout.sessions.retrieve(req.query.session_id);
+        const userKey = req.query.key;
+
+        if (session.status === 'complete' && userKey) {
+             // Upgrade user
+             const userIndex = users.findIndex(u => u.key === userKey);
+             if (userIndex >= 0) {
+                 users[userIndex].isPremium = true;
+             } else {
+                 users.push({ key: userKey, isPremium: true, email: session.customer_details.email });
+             }
+             saveDB();
+        }
+
+        res.json({
+            status: session.status,
+            customer_email: session.customer_details?.email
+        });
+    } catch (e) {
+        res.status(500).json({error: e.message});
+    }
+});
+
+// Serve payment pages
+app.use(express.static(path.join(__dirname, 'public'))); // Assuming payment files are here or serve individually
+app.get('/checkout.html', (req, res) => res.sendFile(path.join(__dirname, 'checkout.html')));
+app.get('/return.html', (req, res) => res.sendFile(path.join(__dirname, 'return.html')));
+app.get('/checkout.js', (req, res) => res.sendFile(path.join(__dirname, 'checkout.js')));
+app.get('/return.js', (req, res) => res.sendFile(path.join(__dirname, 'return.js')));
+app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'style.css')));
+
+
+// --- API ROUTES ---
+
 function getMimeType(filename) {
     const ext = path.extname(filename).toLowerCase();
     if (['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext)) return 'video/mp4';
@@ -144,8 +221,16 @@ function getMimeType(filename) {
 // Aceita raw body até 100MB
 app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', limit: '100mb' }), async (req, res) => {
     try {
-        const { filename, chunk_number, total_chunks, original_name, key, permission } = req.query; // Adicionado 'permission'
+        const { filename, chunk_number, total_chunks, original_name, key, permission } = req.query; 
         
+        // LIMIT CHECK for non-premium
+        if (!isUserPremium(key)) {
+             const userFiles = files.filter(f => f.ownerKey === key);
+             if (userFiles.length >= 5) { // Limit to 5 files for free users
+                 return res.status(403).json({ error: 'Limit reached. Go Premium for unlimited uploads.' });
+             }
+        }
+
         // Validação melhorada
         if (!filename || !chunk_number || !total_chunks || !original_name || !req.body) {
             return res.status(400).json({ error: 'Dados inválidos ou incompletos' });
@@ -160,7 +245,6 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
         fs.writeFileSync(tempPath, req.body);
         
         // Se for o último chunk, tentar reconstruir
-        // CORREÇÃO: chunkIndex é 1-based (vem do cliente como 1, 2, 3...)
         if (chunkIndex === total) {
              const finalFile = fs.createWriteStream(filePath);
              
@@ -190,9 +274,9 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
                  filename: filename,
                  originalName: original_name,
                  ownerKey: key,
-                 permission: permission || 'view', // Guardar permissão (default: view)
+                 permission: permission || 'view', 
                  size: fs.statSync(filePath).size,
-                 mimeType: getMimeType(filename), // Usa o filename com UUID+extensão para detetar
+                 mimeType: getMimeType(filename), 
                  uploadDate: new Date()
              };
              
@@ -212,6 +296,11 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
 
 // Rotas da API
 app.get('/api/files', (req, res) => res.json(files.filter(f => f.ownerKey === req.query.key)));
+app.get('/api/user-status', (req, res) => {
+    const key = req.query.key;
+    res.json({ isPremium: isUserPremium(key) });
+});
+
 app.get('/api/files/:id', (req, res) => {
     const f = files.find(x => x.id === req.params.id);
     if (!f) return res.status(404).json({});
