@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
-const stripe = require('stripe')('sk_test_51T1qYeLTrivMFSU9e4B04X2045504543504354350435'); // Use environment variable in production!
+const stripe = require('stripe')('sk_test_51T1qYeLTrivMFSU9e4B04X2045504543504354350435'); // REPLACE THIS WITH YOUR REAL SECRET KEY!
 
 // Caminhos para os certificados SSL (Unificados)
 const sslKeyPath = path.join(__dirname, '..', 'ssl', 'private-key.pem');
@@ -17,7 +17,7 @@ const HTTP_PORT = process.env.HTTP_PORT || 3000;
 
 // Configuração CORS mais segura
 const corsOptions = {
-    origin: '*', // Idealmente, restringir para domínios específicos em produção
+    origin: '*', 
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-owner-key']
 };
@@ -25,6 +25,12 @@ app.use(cors(corsOptions));
 
 // Aumenta o limite de JSON para garantir que metadados passam
 app.use(express.json({ limit: '1mb' }));
+
+// Set Security Headers for Stripe Embedded Checkout
+app.use((req, res, next) => {
+    res.setHeader("Content-Security-Policy", "script-src 'self' 'unsafe-inline' https://js.stripe.com https://r.stripe.com; frame-src 'self' https://js.stripe.com https://hooks.stripe.com; connect-src 'self' https://api.stripe.com https://r.stripe.com https://m.stripe.network; img-src 'self' https://*.stripe.com data:;");
+    next();
+});
 
 // Middleware de tratamento de erros global
 app.use((err, req, res, next) => {
@@ -45,7 +51,7 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const DB_PATH = path.join(__dirname, 'database.json');
 const USERS_DB_PATH = path.join(__dirname, 'users.json');
 let files = [];
-let users = []; // Simple users DB: { key: "...", isPremium: false }
+let users = []; 
 
 // Garantir diretório de uploads
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
@@ -145,19 +151,24 @@ app.get('/', (req, res) => {
 
 // --- STRIPE PAYMENTS ---
 app.post('/create-checkout-session', async (req, res) => {
-    const { key } = req.body; // User key passed from frontend
+    const { key } = req.body; 
     
+    // IMPORTANT: Check if Stripe key is valid before calling Stripe
+    if (!process.env.STRIPE_SECRET_KEY && !stripe._api.auth) {
+         console.error("Stripe Secret Key is missing!");
+         // In production, you would fail here. For this demo, let's assume it might be missing and log it.
+    }
+
     try {
         const session = await stripe.checkout.sessions.create({
             ui_mode: 'embedded',
             line_items: [
                 {
-                    // Provide the exact Price ID (for example, pr_1234) of the product you want to sell
                     price_data: {
                         currency: 'eur',
                         product_data: {
                             name: 'EverTech Cloud Premium',
-                            description: 'No ads, unlimited uploads',
+                            description: 'Sem anúncios, uploads ilimitados',
                         },
                         unit_amount: 500, // 5.00 EUR
                     },
@@ -170,6 +181,7 @@ app.post('/create-checkout-session', async (req, res) => {
         
         res.send({clientSecret: session.client_secret});
     } catch (e) {
+        console.error("Stripe Error:", e.message);
         res.status(500).json({error: e.message});
     }
 });
@@ -200,7 +212,7 @@ app.get('/session-status', async (req, res) => {
 });
 
 // Serve payment pages
-app.use(express.static(path.join(__dirname, 'public'))); // Assuming payment files are here or serve individually
+app.use(express.static(path.join(__dirname, 'public'))); 
 app.get('/checkout.html', (req, res) => res.sendFile(path.join(__dirname, 'checkout.html')));
 app.get('/return.html', (req, res) => res.sendFile(path.join(__dirname, 'return.html')));
 app.get('/checkout.js', (req, res) => res.sendFile(path.join(__dirname, 'checkout.js')));
