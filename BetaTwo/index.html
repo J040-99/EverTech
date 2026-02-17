@@ -223,8 +223,6 @@
                 this.uploadProgress = 0;
 
                 for (let file of files) {
-                    // Chunk upload logic would go here (simplified for brevity in this view)
-                    // reusing the robust chunk logic from before but adapting to frontend
                     await this.uploadFileInChunks(file);
                 }
                 
@@ -276,7 +274,7 @@
                 return new Date(dateStr).toLocaleDateString();
             }
         }
-    });
+    }).mount('#app');  // <-- ESTE ERA O PROBLEMA: Faltava esta linha!
 </script>
 
 </body>
