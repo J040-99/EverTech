@@ -73,9 +73,11 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
         fs.writeFileSync(tempPath, req.body);
         
         // Se for o último chunk, tentar reconstruir
-        if (chunkIndex === total - 1) {
+        // CORREÇÃO: chunkIndex é 1-based (vem do cliente como 1, 2, 3...)
+        if (chunkIndex === total) {
              const finalFile = fs.createWriteStream(filePath);
-             for (let i = 0; i < total; i++) {
+             // CORREÇÃO: Loop de 1 até total para apanhar as partes corretas
+             for (let i = 1; i <= total; i++) {
                  const part = `${filePath}.part${i}`;
                  if (fs.existsSync(part)) {
                      const data = fs.readFileSync(part);
@@ -96,7 +98,7 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
                  uploadDate: new Date()
              });
              
-             return res.json({ success: true, message: 'Upload completo' });
+             return res.json({ success: true, message: 'Upload completo', file: { id: files[files.length-1].id } });
         }
 
         res.json({ success: true, message: `Chunk ${chunkIndex} recebido` });
@@ -113,7 +115,7 @@ app.get('/api/files/:id', (req, res) => {
     const f = files.find(x => x.id === req.params.id);
     if (!f) return res.status(404).json({});
     const { ownerKey, ...publicData } = f;
-    res.json(publicData);
+    res.json({ ...publicData, url: `/uploads/${f.filename}` });
 });
 app.delete('/api/files/:id', (req, res) => {
     const key = req.query.key || req.headers['x-owner-key']; // Aceita query ou header
