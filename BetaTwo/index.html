@@ -239,8 +239,14 @@
                     const end = Math.min(file.size, start + CHUNK_SIZE);
                     const chunk = file.slice(start, end);
                     
+                    // CORREÇÃO: Usar body: chunk diretamente, sem JSON.stringify, e especificar Content-Type correto no servidor
+                    // A rota espera application/octet-stream, mas o fetch por padrão pode não enviar como esperado se não for explicitamente blob/buffer
+                    
                     await fetch(`/api/upload_chunk?filename=${Date.now()}_${file.name}&chunk_number=${i+1}&total_chunks=${totalChunks}&original_name=${file.name}&key=${this.userKey}&permission=${this.uploadPermission}`, {
                         method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/octet-stream' // Forçar tipo binário
+                        },
                         body: chunk
                     });
                     
@@ -274,7 +280,7 @@
                 return new Date(dateStr).toLocaleDateString();
             }
         }
-    }).mount('#app');  // <-- ESTE ERA O PROBLEMA: Faltava esta linha!
+    }).mount('#app');
 </script>
 
 </body>
