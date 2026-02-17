@@ -21,8 +21,52 @@
 
 <div id="app" v-cloak class="min-h-screen flex flex-col items-center justify-center p-4">
 
+    <!-- PUBLIC FILE VIEWER (quando ?file= na URL) -->
+    <div v-if="viewMode === 'public' && sharedFile" class="w-full max-w-4xl space-y-6">
+        <div class="glass-panel p-8">
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h1 class="text-2xl font-bold text-cyan-400"><i class="fas fa-share-alt"></i> Ficheiro Partilhado</h1>
+                    <p class="text-gray-400 text-sm">via EverTech Cloud</p>
+                </div>
+                <a :href="sharedFile.url" :download="sharedFile.originalName" class="btn-primary px-6 py-3 rounded-lg flex items-center gap-2">
+                    <i class="fas fa-download"></i> Baixar
+                </a>
+            </div>
+
+            <!-- Preview -->
+            <div class="bg-black/40 rounded-lg p-4 mb-4 flex items-center justify-center min-h-[400px]">
+                <img v-if="sharedFile.mimeType && sharedFile.mimeType.startsWith('image')" 
+                     :src="sharedFile.url" 
+                     :alt="sharedFile.originalName"
+                     class="max-w-full max-h-[600px] object-contain rounded">
+                <video v-else-if="sharedFile.mimeType && sharedFile.mimeType.startsWith('video')" 
+                       :src="sharedFile.url" 
+                       controls 
+                       class="max-w-full max-h-[600px] rounded">
+                </video>
+                <div v-else class="text-center">
+                    <i class="fas fa-file text-6xl text-gray-600 mb-4"></i>
+                    <p class="text-gray-400">Pré-visualização não disponível. Use o botão "Baixar" acima.</p>
+                </div>
+            </div>
+
+            <!-- File Info -->
+            <div class="border-t border-gray-700 pt-4">
+                <h3 class="font-bold text-lg mb-2">{{ sharedFile.originalName }}</h3>
+                <p class="text-sm text-gray-400">Tamanho: {{ formatSize(sharedFile.size) }} • Upload: {{ formatDate(sharedFile.uploadDate) }}</p>
+            </div>
+
+            <div class="mt-6 text-center">
+                <button @click="goToLogin" class="text-cyan-400 hover:underline text-sm">
+                    Criar a tua conta gratuita para partilhar ficheiros <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- LOGIN SCREEN -->
-    <div v-if="!isAuthenticated" class="glass-panel p-8 w-full max-w-md">
+    <div v-else-if="viewMode === 'login'" class="glass-panel p-8 w-full max-w-md">
         <div class="text-center mb-6">
             <h1 class="text-3xl font-bold text-cyan-400 mb-2"><i class="fas fa-cloud"></i> EverTech Cloud</h1>
             <p class="text-gray-400">Armazenamento Seguro & Privado</p>
@@ -63,7 +107,7 @@
     </div>
 
     <!-- MAIN DASHBOARD -->
-    <div v-else class="w-full max-w-5xl space-y-6">
+    <div v-else-if="viewMode === 'dashboard'" class="w-full max-w-5xl space-y-6">
         
         <!-- Header -->
         <div class="glass-panel p-4 flex justify-between items-center">
@@ -125,7 +169,7 @@
                     
                     <!-- File Icon/Preview -->
                     <div class="h-32 mb-3 bg-black/30 rounded flex items-center justify-center overflow-hidden">
-                        <img v-if="file.mimeType && file.mimeType.startsWith('image')" :src="file.url" class="object-cover w-full h-full opacity-80 group-hover:opacity-100 transition">
+                        <img v-if="file.mimeType && file.mimeType.startsWith('image')" :src="getFileUrl(file.filename)" class="object-cover w-full h-full opacity-80 group-hover:opacity-100 transition">
                         <i v-else class="fas fa-file-alt text-4xl text-gray-600"></i>
                     </div>
 
@@ -161,7 +205,8 @@
     createApp({
         data() {
             return {
-                isAuthenticated: false,
+                viewMode: 'login', // 'login', 'dashboard', 'public'
+                sharedFile: null,
                 loginKey: localStorage.getItem('userKey') || '',
                 loginPassword: '',
                 loginError: '',
@@ -173,14 +218,35 @@
                 uploadPermission: 'view'
             }
         },
-        mounted() {
-            // Se já tivermos chave, tentamos "resumir" sessão, mas idealmente pediríamos password de novo
-            // Para simplificar UX, vamos pedir login sempre se não houver token (aqui simulado)
-            if (this.loginKey) {
-                // Pre-fill key but don't auto-login to force password check for security
+        async mounted() {
+            // Verificar se há um ?file=ID na URL (visualização pública)
+            const urlParams = new URLSearchParams(window.location.search);
+            const fileId = urlParams.get('file');
+            
+            if (fileId) {
+                await this.loadPublicFile(fileId);
             }
         },
         methods: {
+            async loadPublicFile(fileId) {
+                try {
+                    const res = await fetch(`/api/files/${fileId}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        this.sharedFile = data;
+                        this.viewMode = 'public';
+                    } else {
+                        alert('Ficheiro não encontrado.');
+                        this.viewMode = 'login';
+                    }
+                } catch(e) {
+                    alert('Erro ao carregar ficheiro.');
+                    this.viewMode = 'login';
+                }
+            },
+            goToLogin() {
+                window.location.href = '/';
+            },
             async login() {
                 this.loginError = '';
                 try {
@@ -192,10 +258,10 @@
                     const data = await res.json();
                     
                     if (data.success) {
-                        this.isAuthenticated = true;
                         this.userKey = this.loginKey;
                         this.isPremium = data.isPremium;
-                        localStorage.setItem('userKey', this.userKey); // Guardar apenas a chave para conveniência
+                        localStorage.setItem('userKey', this.userKey);
+                        this.viewMode = 'dashboard';
                         this.fetchFiles();
                     } else {
                         this.loginError = data.error || 'Falha no login';
@@ -205,7 +271,7 @@
                 }
             },
             logout() {
-                this.isAuthenticated = false;
+                this.viewMode = 'login';
                 this.userKey = '';
                 this.loginPassword = '';
                 this.files = [];
@@ -227,11 +293,11 @@
                 }
                 
                 this.isUploading = false;
-                this.$refs.fileInput.value = ''; // Clear input
-                this.fetchFiles(); // Refresh list
+                this.$refs.fileInput.value = '';
+                this.fetchFiles();
             },
             async uploadFileInChunks(file) {
-                const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+                const CHUNK_SIZE = 5 * 1024 * 1024;
                 const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
                 
                 for (let i = 0; i < totalChunks; i++) {
@@ -239,13 +305,10 @@
                     const end = Math.min(file.size, start + CHUNK_SIZE);
                     const chunk = file.slice(start, end);
                     
-                    // CORREÇÃO: Usar body: chunk diretamente, sem JSON.stringify, e especificar Content-Type correto no servidor
-                    // A rota espera application/octet-stream, mas o fetch por padrão pode não enviar como esperado se não for explicitamente blob/buffer
-                    
                     await fetch(`/api/upload_chunk?filename=${Date.now()}_${file.name}&chunk_number=${i+1}&total_chunks=${totalChunks}&original_name=${file.name}&key=${this.userKey}&permission=${this.uploadPermission}`, {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/octet-stream' // Forçar tipo binário
+                            'Content-Type': 'application/octet-stream'
                         },
                         body: chunk
                     });
@@ -268,6 +331,9 @@
             },
             goPremium() {
                 window.location.href = `/checkout.html?key=${this.userKey}`;
+            },
+            getFileUrl(filename) {
+                return `/uploads/${filename}`;
             },
             formatSize(bytes) {
                 if (bytes === 0) return '0 Bytes';
