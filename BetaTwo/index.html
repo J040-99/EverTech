@@ -60,6 +60,42 @@
             color: #fff;
             border-color: #555;
         }
+
+        /* --- NOVOS ESTILOS UX --- */
+        /* Drag & Drop */
+        .drag-active { border-color: var(--primary) !important; background: rgba(0, 229, 255, 0.1) !important; }
+
+        /* Toast Notification */
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 8px;
+            padding: 16px;
+            position: fixed;
+            z-index: 1000;
+            left: 50%;
+            bottom: 30px;
+            transform: translateX(-50%);
+            border: 1px solid var(--primary);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            opacity: 0;
+            transition: opacity 0.3s, bottom 0.3s;
+        }
+        #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
+
+        /* Modal customizado */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 999;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background: var(--surface); padding: 25px; border-radius: 12px;
+            border: 1px solid var(--border); width: 90%; max-width: 450px; text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -88,12 +124,11 @@
 
         <!-- TAB: UPLOAD -->
         <div id="upload-tab">
-            <div class="card" style="text-align:center; border:2px dashed #444; padding:60px 20px; cursor:pointer; transition: 0.2s" 
-                 onclick="document.getElementById('fileIn').click()" 
-                 onmouseover="this.style.borderColor='#00e5ff'\" 
-                 onmouseout="this.style.borderColor='#444'">
+            <!-- Área de Upload com Drag & Drop -->
+            <div id="drop-zone" class="card" style="text-align:center; border:2px dashed #444; padding:60px 20px; cursor:pointer; transition: 0.2s" 
+                 onclick="document.getElementById('fileIn').click()">
                 <div style="font-size: 40px; margin-bottom: 10px">☁️</div>
-                <h3>Tocar para escolher ficheiro</h3>
+                <h3>Tocar ou Arrastar Ficheiro</h3>
                 <p style="color:#666">Suporta ficheiros > 1GB</p>
             </div>
             <input type="file" id="fileIn" hidden onchange="startBigUpload(this.files)">
@@ -134,19 +169,70 @@
         </div>
     </div>
 
+    <!-- UI Elements: Toast & Modal -->
+    <div id="toast">Notificação</div>
+    
+    <div id="link-modal" class="hidden modal-overlay">
+        <div class="modal-content">
+            <h3>Upload Concluído! ✅</h3>
+            <p style="color:#aaa; margin-bottom:15px">O teu ficheiro está pronto a partilhar.</p>
+            <input type="text" id="modal-link-input" class="key-input" readonly style="margin-bottom:15px; text-align:center">
+            <div style="display:flex; gap:10px; justify-content:center">
+                <button class="btn" onclick="copyFromModal()">Copiar Link</button>
+                <button class="btn btn-icon" onclick="document.getElementById('link-modal').classList.add('hidden')">Fechar</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // --- CONFIGURAÇÃO ---
         const API = '/api';
-        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB (Melhor balanceamento velocidade/segurança)
-        const MAX_RETRIES = 3; // Tenta 3 vezes se a net falhar
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+        const MAX_RETRIES = 3;
 
         // --- GESTÃO DE CHAVE ---
         const keyInput = document.getElementById('owner-key');
         keyInput.value = localStorage.getItem('myKey') || Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-        saveKey(); // Garante que salva na primeira vez
+        saveKey();
 
         function saveKey() { localStorage.setItem('myKey', keyInput.value); }
         function toggleKey() { keyInput.type = keyInput.type === "password" ? "text" : "password"; }
+
+        // --- UI/UX: Drag & Drop ---
+        const dropZone = document.getElementById('drop-zone');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-active'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-active'), false);
+        });
+
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            startBigUpload(files);
+        }
+
+        // --- UI/UX: Toast ---
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.className = "show";
+            setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
+        }
 
         // --- NAVEGAÇÃO ---
         function switchTab(id, btn) {
@@ -157,10 +243,8 @@
             if(id === 'files') loadFiles();
         }
 
-        // --- UPLOAD INTELIGENTE (CHUNKED + RETRY) ---
+        // --- UPLOAD ---
         let isUploading = false;
-
-        // Proteção contra fecho acidental
         window.onbeforeunload = function() {
             if (isUploading) return "Upload em progresso. Tens a certeza que queres sair?";
         };
@@ -169,12 +253,10 @@
             if(!files.length) return;
             const file = files[0];
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-            // CORREÇÃO: Adicionar extensão ao UUID para o servidor detetar o MIME type corretamente
             const ext = file.name.includes('.') ? '.' + file.name.split('.').pop() : '';
             const fileUUID = Math.random().toString(36).substr(2, 9) + ext;
             const permission = confirm('Permitir que outras pessoas façam download?') ? 'download' : 'view';
             
-            // UI Reset
             isUploading = true;
             document.getElementById('upload-status').classList.remove('hidden');
             document.getElementById('upload-title').innerText = `A enviar: ${file.name}`;
@@ -185,7 +267,6 @@
                 const end = Math.min(start + CHUNK_SIZE, file.size);
                 const chunk = file.slice(start, end);
 
-                // Tenta enviar este pedaço com retries
                 let success = false;
                 for(let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                     try {
@@ -198,33 +279,26 @@
                         });
 
                         if(!res.ok) throw new Error('Servidor rejeitou');
-                        
-                        // Se chegou aqui, funcionou. Sai do loop de tentativas.
                         success = true;
                         
-                        // Se for o último, processa resposta final
                         if(chunkNum === totalChunks) {
                              const data = await res.json();
                              finishUpload(data);
                              return;
                         }
                         break; 
-
                     } catch (e) {
-                        console.warn(`Erro no pedaço ${chunkNum}, tentativa ${attempt}/${MAX_RETRIES}`);
                         document.getElementById('progress-info').innerText = `Erro de rede... A tentar de novo (${attempt}/${MAX_RETRIES})`;
-                        // Espera 1 segundo antes de tentar de novo
                         await new Promise(r => setTimeout(r, 1000));
                     }
                 }
 
                 if(!success) {
-                    alert('Falha crítica no upload. Verifica a tua internet.');
+                    alert('Falha crítica no upload.');
                     isUploading = false;
                     document.getElementById('upload-status').classList.add('hidden');
                     return;
                 }
-
                 updateProgress(chunkNum, totalChunks);
             }
         }
@@ -239,11 +313,26 @@
         function finishUpload(data) {
             isUploading = false;
             const fullLink = window.location.origin + '/#file=' + data.file.id;
-            prompt("Upload Concluído! Copia o link:", fullLink);
             
+            // UI Update: Show Custom Modal instead of Prompt
             document.getElementById('upload-status').classList.add('hidden');
-            document.getElementById('fileIn').value = ''; // Limpa input
-            switchTab('files', null); // Vai para a lista
+            document.getElementById('fileIn').value = ''; 
+            
+            const modal = document.getElementById('link-modal');
+            document.getElementById('modal-link-input').value = fullLink;
+            modal.classList.remove('hidden');
+            
+            switchTab('files', null); // Background switch
+        }
+
+        function copyFromModal() {
+            const input = document.getElementById('modal-link-input');
+            input.select();
+            input.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(input.value).then(() => {
+                showToast("Link copiado! 👌");
+                document.getElementById('link-modal').classList.add('hidden');
+            });
         }
 
         // --- LISTA ---
@@ -262,7 +351,6 @@
                 list.innerHTML = data.map(f => {
                     const fullLink = window.location.origin + '/#file=' + f.id;
                     const sizeMB = (f.size / (1024*1024)).toFixed(1);
-                    // CORREÇÃO: Usar originalName em vez de name
                     const fileName = f.originalName || f.name || 'Sem nome';
                     return `
                     <div class="file-item">
@@ -283,10 +371,11 @@
             if(!confirm('Tens a certeza que queres apagar permanentemente?')) return;
             await fetch(`${API}/files/${id}`, { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key: keyInput.value}) });
             loadFiles();
+            showToast("Ficheiro apagado.");
         }
 
         function copy(text) {
-            navigator.clipboard.writeText(text).then(() => alert('Link copiado para a área de transferência!'));
+            navigator.clipboard.writeText(text).then(() => showToast('Link copiado! 🔗'));
         }
 
         // --- VISUALIZADOR ---
@@ -295,7 +384,7 @@
             if(!id) {
                 const val = document.getElementById('linkIn').value;
                 if(val.includes('file=')) id = val.split('file=')[1];
-                else { alert('Link inválido'); return; }
+                else { showToast('Link inválido'); return; }
             }
 
             const viewer = document.getElementById('viewer');
@@ -307,14 +396,12 @@
                 if(!res.ok) throw new Error();
                 const f = await res.json();
                 
-                const resourceUrl = f.url; // Relativo
-                // CORREÇÃO: Usar originalName e mimeType
+                const resourceUrl = f.url; 
                 const fileName = f.originalName || f.name || 'Sem nome';
                 const fileType = f.mimeType || f.type || '';
 
                 let html = `<h3 style="word-break:break-all">${fileName}</h3>`;
                 
-                // Detecção inteligente de tipo
                 if(fileType.startsWith('image')) {
                     html += `<img src="${resourceUrl}">`;
                 } else if(fileType.startsWith('video')) {
@@ -343,7 +430,6 @@
             }
         }
 
-        // Auto-load se abrir com link
         if(window.location.hash.includes('file=')) {
             switchTab('view', null);
             document.getElementById('linkIn').value = window.location.href;
