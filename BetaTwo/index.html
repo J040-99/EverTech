@@ -65,7 +65,7 @@
 <body>
     <div class="container">
         <!-- Back Button -->
-        <a href="https://ever-techs.com" class="back-hub-btn">⬅ Voltar ao Hub</a>
+        <a href="https://hub.ever-techs.com" class="back-hub-btn">⬅ Voltar ao Hub</a>
 
         <!-- HEADER / CHAVE -->
         <div class="card">
@@ -90,7 +90,7 @@
         <div id="upload-tab">
             <div class="card" style="text-align:center; border:2px dashed #444; padding:60px 20px; cursor:pointer; transition: 0.2s" 
                  onclick="document.getElementById('fileIn').click()" 
-                 onmouseover="this.style.borderColor='#00e5ff'" 
+                 onmouseover="this.style.borderColor='#00e5ff'\" 
                  onmouseout="this.style.borderColor='#444'">
                 <div style="font-size: 40px; margin-bottom: 10px">☁️</div>
                 <h3>Tocar para escolher ficheiro</h3>
@@ -169,7 +169,9 @@
             if(!files.length) return;
             const file = files[0];
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-            const fileUUID = Math.random().toString(36).substr(2, 9);
+            // CORREÇÃO: Adicionar extensão ao UUID para o servidor detetar o MIME type corretamente
+            const ext = file.name.includes('.') ? '.' + file.name.split('.').pop() : '';
+            const fileUUID = Math.random().toString(36).substr(2, 9) + ext;
             const permission = confirm('Permitir que outras pessoas façam download?') ? 'download' : 'view';
             
             // UI Reset
@@ -187,7 +189,6 @@
                 let success = false;
                 for(let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                     try {
-                        // FIX: Alterado de filename para fileUUID na querystring para corresponder à lógica do cliente
                         const url = `${API}/upload_chunk?filename=${fileUUID}&chunk_number=${chunkNum}&total_chunks=${totalChunks}&original_name=${encodeURIComponent(file.name)}&key=${keyInput.value}&permission=${permission}`;
                         
                         const res = await fetch(url, {
@@ -261,10 +262,12 @@
                 list.innerHTML = data.map(f => {
                     const fullLink = window.location.origin + '/#file=' + f.id;
                     const sizeMB = (f.size / (1024*1024)).toFixed(1);
+                    // CORREÇÃO: Usar originalName em vez de name
+                    const fileName = f.originalName || f.name || 'Sem nome';
                     return `
                     <div class="file-item">
                         <div style="flex-grow:1; margin-right:10px; overflow:hidden">
-                            <div class="file-name" title="${f.name}">${f.name}</div>
+                            <div class="file-name" title="${fileName}">${fileName}</div>
                             <small style="color:#666">${sizeMB} MB • ${new Date(f.uploadDate).toLocaleDateString()}</small>
                         </div>
                         <div style="flex-shrink:0">
@@ -305,15 +308,19 @@
                 const f = await res.json();
                 
                 const resourceUrl = f.url; // Relativo
-                let html = `<h3 style="word-break:break-all">${f.name}</h3>`;
+                // CORREÇÃO: Usar originalName e mimeType
+                const fileName = f.originalName || f.name || 'Sem nome';
+                const fileType = f.mimeType || f.type || '';
+
+                let html = `<h3 style="word-break:break-all">${fileName}</h3>`;
                 
                 // Detecção inteligente de tipo
-                if(f.type.startsWith('image')) {
+                if(fileType.startsWith('image')) {
                     html += `<img src="${resourceUrl}">`;
-                } else if(f.type.startsWith('video')) {
+                } else if(fileType.startsWith('video')) {
                     html += `
                         <video controls playsinline preload="metadata">
-                            <source src="${resourceUrl}" type="${f.type}">
+                            <source src="${resourceUrl}" type="${fileType}">
                             <source src="${resourceUrl}" type="video/mp4">
                             O teu browser não suporta este vídeo.
                         </video>`;
@@ -324,13 +331,14 @@
                 }
 
                 if(f.permission === 'download') {
-                    html += `<a href="${resourceUrl}" download="${f.name}" class="btn" style="display:block; text-align:center; margin-top:20px; text-decoration:none; padding:15px">⬇️ DOWNLOAD (${(f.size/(1024*1024)).toFixed(1)} MB)</a>`;
+                    html += `<a href="${resourceUrl}" download="${fileName}" class="btn" style="display:block; text-align:center; margin-top:20px; text-decoration:none; padding:15px">⬇️ DOWNLOAD (${(f.size/(1024*1024)).toFixed(1)} MB)</a>`;
                 } else {
                     html += `<div style="text-align:center; margin-top:20px; color:#ff5252; border:1px solid #ff5252; padding:10px; border-radius:6px">⛔ Download Bloqueado pelo dono</div>`;
                 }
                 
                 viewer.innerHTML = html;
             } catch(e) { 
+                console.error(e);
                 viewer.innerHTML = '<div style="color:#ff5252; text-align:center">Ficheiro não encontrado ou removido.</div>';
             }
         }
