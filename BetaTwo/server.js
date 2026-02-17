@@ -41,10 +41,37 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
-// "Base de dados" simples
-let files = [];
+// --- PERSISTÊNCIA DE DADOS ---
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const DB_PATH = path.join(__dirname, 'database.json');
+let files = [];
+
+// Garantir diretório de uploads
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
+
+// Carregar base de dados
+function loadDB() {
+    try {
+        if (fs.existsSync(DB_PATH)) {
+            const data = fs.readFileSync(DB_PATH, 'utf8');
+            files = JSON.parse(data);
+            console.log(`📂 Base de dados carregada: ${files.length} ficheiros.`);
+        }
+    } catch (e) {
+        console.error('Erro ao carregar base de dados:', e);
+        files = [];
+    }
+}
+loadDB();
+
+// Salvar base de dados
+function saveDB() {
+    try {
+        fs.writeFileSync(DB_PATH, JSON.stringify(files, null, 2));
+    } catch (e) {
+        console.error('Erro ao salvar base de dados:', e);
+    }
+}
 
 function getMimeType(filename) {
     const ext = path.extname(filename).toLowerCase();
@@ -98,17 +125,20 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
              await writeFinished;
              
              // Adicionar à "base de dados"
-             files.push({
+             const newFile = {
                  id: Date.now().toString(),
                  filename: filename,
                  originalName: original_name,
                  ownerKey: key,
                  size: fs.statSync(filePath).size,
-                 mimeType: getMimeType(filename),
+                 mimeType: getMimeType(filename), // Usa o filename com UUID+extensão para detetar
                  uploadDate: new Date()
-             });
+             };
              
-             return res.json({ success: true, message: 'Upload completo', file: { id: files[files.length-1].id } });
+             files.push(newFile);
+             saveDB(); // Persistir mudança
+             
+             return res.json({ success: true, message: 'Upload completo', file: { id: newFile.id } });
         }
 
         res.json({ success: true, message: `Chunk ${chunkIndex} recebido` });
@@ -140,6 +170,7 @@ app.delete('/api/files/:id', (req, res) => {
     }
     
     files.splice(idx, 1);
+    saveDB(); // Persistir mudança
     res.json({success: true});
 });
 
