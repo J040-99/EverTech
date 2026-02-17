@@ -4,7 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
-const stripe = require('stripe')('sk_test_51T1qYeLTrivMFSU9e4B04X2045504543504354350435'); // REPLACE THIS WITH YOUR REAL SECRET KEY!
+
+// Configuração Stripe: Lê a chave da variável de ambiente ou falha se não existir
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeSecretKey) {
+    console.error("ERRO CRÍTICO: A variável de ambiente STRIPE_SECRET_KEY não foi definida!");
+    console.error("Por favor, inicie o servidor com a chave secreta.");
+}
+const stripe = require('stripe')(stripeSecretKey);
 
 // Caminhos para os certificados SSL (Unificados)
 const sslKeyPath = path.join(__dirname, '..', 'ssl', 'private-key.pem');
@@ -153,12 +160,6 @@ app.get('/', (req, res) => {
 app.post('/create-checkout-session', async (req, res) => {
     const { key } = req.body; 
     
-    // IMPORTANT: Check if Stripe key is valid before calling Stripe
-    if (!process.env.STRIPE_SECRET_KEY && !stripe._api.auth) {
-         console.error("Stripe Secret Key is missing!");
-         // In production, you would fail here. For this demo, let's assume it might be missing and log it.
-    }
-
     try {
         const session = await stripe.checkout.sessions.create({
             ui_mode: 'embedded',
