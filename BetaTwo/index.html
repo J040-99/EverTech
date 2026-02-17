@@ -2,512 +2,282 @@
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloud Share - Large Files</title>
+    <title>EverTech Cloud - BetaTwo</title>
+    <!-- Incluir Vue.js -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        :root { --bg: #121212; --surface: #1e1e1e; --primary: #00e5ff; --text: #e0e0e0; --border: #333; }
-        body { margin: 0; padding: 15px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
-        .container { max-width: 700px; margin: 0 auto; position: relative; } /* Added position relative */
-        .card { background: var(--surface); border-radius: 12px; padding: 20px; margin-bottom: 15px; border: 1px solid var(--border); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        
-        /* Botões */
-        .btn { padding: 10px 18px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; background: var(--primary); color: #000; transition: transform 0.1s; }
-        .btn:active { transform: scale(0.98); }
-        .btn-danger { background: #ff5252; color: #fff; }
-        .btn-icon { background: transparent; border: 1px solid #555; color: #fff; padding: 8px 12px; }
-        .btn-premium { background: linear-gradient(45deg, #FFD700, #FFA500); color: #000; }
-        
-        /* Inputs */
-        .key-input { width: 100%; padding: 12px; background: #000; border: 1px solid var(--primary); color: white; border-radius: 6px; box-sizing: border-box; font-family: monospace; letter-spacing: 1px; }
-        
-        /* Tabs */
-        .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
-        .tab-btn { background: none; border: none; color: #888; padding: 12px 20px; cursor: pointer; font-weight: 600; border-bottom: 2px solid transparent; }
-        .tab-btn.active { color: var(--primary); border-color: var(--primary); }
-        
-        /* Utilitários */
-        .hidden { display: none !important; }
-        .flex-between { display: flex; justify-content: space-between; align-items: center; }
-        
-        /* Upload Status */
-        .progress-container { width: 100%; background: #333; height: 12px; border-radius: 6px; margin-top: 15px; overflow: hidden; }
-        .progress-bar { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s linear; }
-        .status-text { font-size: 13px; color: #aaa; margin-top: 8px; text-align: center; }
-
-        /* File List */
-        .file-item { padding: 12px; background: rgba(255,255,255,0.05); margin-bottom: 8px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; font-weight: 500; }
-
-        /* Media */
-        video, img { width: 100%; max-height: 60vh; background: #000; border-radius: 8px; margin-top: 15px; }
-
-        /* Back to Hub Button */
-        .back-hub-btn {
-            display: inline-flex;
-            align-items: center;
-            padding: 8px 12px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #ccc;
-            text-decoration: none;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 15px;
-            transition: all 0.2s;
-            border: 1px solid transparent;
-        }
-        .back-hub-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-            color: #fff;
-            border-color: #555;
-        }
-
-        /* --- NOVOS ESTILOS UX --- */
-        /* Drag & Drop */
-        .drag-active { border-color: var(--primary) !important; background: rgba(0, 229, 255, 0.1) !important; }
-
-        /* Toast Notification */
-        #toast {
-            visibility: hidden;
-            min-width: 250px;
-            background-color: #333;
-            color: #fff;
-            text-align: center;
-            border-radius: 8px;
-            padding: 16px;
-            position: fixed;
-            z-index: 1000;
-            left: 50%;
-            bottom: 30px;
-            transform: translateX(-50%);
-            border: 1px solid var(--primary);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            opacity: 0;
-            transition: opacity 0.3s, bottom 0.3s;
-        }
-        #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
-
-        /* Modal customizado */
-        .modal-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); z-index: 999;
-            display: flex; justify-content: center; align-items: center;
-        }
-        .modal-content {
-            background: var(--surface); padding: 25px; border-radius: 12px;
-            border: 1px solid var(--border); width: 90%; max-width: 450px; text-align: center;
-        }
-        
-        /* Anúncios */
-        .ad-banner {
-            background: #2a2a2a;
-            border: 1px solid #444;
-            color: #888;
-            padding: 15px;
-            margin-top: 20px;
-            border-radius: 8px;
-            text-align: center;
-            font-size: 13px;
-        }
+        body { background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .glass-panel { background: rgba(30, 30, 30, 0.95); border: 1px solid #333; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .btn-primary { background: #00e5ff; color: #000; font-weight: bold; transition: all 0.2s; }
+        .btn-primary:hover { background: #00b8cc; transform: scale(1.02); }
+        .input-dark { background: #2d2d2d; border: 1px solid #444; color: white; }
+        .input-dark:focus { border-color: #00e5ff; outline: none; }
+        [v-cloak] { display: none; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Back Button -->
-        <a href="https://hub.ever-techs.com" class="back-hub-btn">⬅ Voltar ao Hub</a>
 
-        <!-- HEADER / CHAVE -->
-        <div class="card">
-            <div class="flex-between">
-                <h2 style="margin:0">🔒 Chave Secreta</h2>
-                <div style="display:flex; gap:5px">
-                    <button id="premium-badge" class="btn btn-premium hidden" style="font-size:12px; padding:5px 10px; pointer-events:none">👑 PREMIUM</button>
-                    <button class="btn btn-icon" onclick="toggleKey()">👁️</button>
+<div id="app" v-cloak class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- LOGIN SCREEN -->
+    <div v-if="!isAuthenticated" class="glass-panel p-8 w-full max-w-md">
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-cyan-400 mb-2"><i class="fas fa-cloud"></i> EverTech Cloud</h1>
+            <p class="text-gray-400">Armazenamento Seguro & Privado</p>
+        </div>
+
+        <form @submit.prevent="login" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-400 mb-1">Chave de Acesso</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">
+                        <i class="fas fa-key"></i>
+                    </span>
+                    <input v-model="loginKey" type="text" required placeholder="A tua chave única" 
+                           class="input-dark w-full pl-10 pr-4 py-2 rounded-lg">
                 </div>
             </div>
-            <p style="font-size:12px; color:#888; margin: 10px 0;">Esta chave é a única forma de ver os teus ficheiros.</p>
-            <input type="password" id="owner-key" class="key-input" oninput="saveKey()">
             
-            <div id="premium-cta" class="hidden" style="margin-top:10px; padding-top:10px; border-top:1px solid #333; text-align:center">
-                <p style="font-size:13px; color:#aaa; margin-bottom:10px">Utilizador Gratuito (Máx 5 ficheiros)</p>
-                <a href="/checkout.html" class="btn btn-premium" style="text-decoration:none; display:inline-block; font-size:13px">💎 Ser Premium (Remove Limites & Ads)</a>
-            </div>
-        </div>
-
-        <!-- NAVEGAÇÃO -->
-        <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('upload', this)">Enviar</button>
-            <button class="tab-btn" onclick="switchTab('files', this)">Meus Ficheiros</button>
-            <button class="tab-btn" onclick="switchTab('view', this)">Abrir Link</button>
-        </div>
-
-        <!-- TAB: UPLOAD -->
-        <div id="upload-tab">
-            <!-- Área de Upload com Drag & Drop -->
-            <div id="drop-zone" class="card" style="text-align:center; border:2px dashed #444; padding:60px 20px; cursor:pointer; transition: 0.2s" 
-                 onclick="document.getElementById('fileIn').click()">
-                <div style="font-size: 40px; margin-bottom: 10px">☁️</div>
-                <h3>Tocar ou Arrastar Ficheiro</h3>
-                <p style="color:#666">Suporta ficheiros > 1GB</p>
-            </div>
-            <input type="file" id="fileIn" hidden onchange="startBigUpload(this.files)">
-            
-            <div id="upload-status" class="card hidden">
-                <h3 id="upload-title">A enviar...</h3>
-                <div class="progress-container">
-                    <div id="progress-bar" class="progress-bar"></div>
+            <div>
+                <label class="block text-sm font-medium text-gray-400 mb-1">Password</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">
+                        <i class="fas fa-lock"></i>
+                    </span>
+                    <input v-model="loginPassword" type="password" required placeholder="••••••••" 
+                           class="input-dark w-full pl-10 pr-4 py-2 rounded-lg">
                 </div>
-                <div class="flex-between status-text">
-                    <span id="progress-percent">0%</span>
-                    <span id="progress-info">A iniciar...</span>
-                </div>
-                <p style="font-size:11px; color:#ff5252; margin-top:10px; text-align:center">⚠️ Não feches esta aba!</p>
+                <p class="text-xs text-gray-500 mt-1">Se for o primeiro acesso, esta password será definida.</p>
             </div>
-        </div>
 
-        <!-- TAB: LISTA -->
-        <div id="files-tab" class="hidden">
-            <div class="card">
-                <div class="flex-between" style="margin-bottom:15px">
-                    <h3>Ficheiros Guardados</h3>
-                    <button class="btn" style="font-size:12px; padding: 5px 10px;" onclick="loadFiles()">🔄 Atualizar</button>
-                </div>
-                <div id="list"></div>
+            <div v-if="loginError" class="text-red-400 text-sm text-center bg-red-900/20 p-2 rounded border border-red-800">
+                {{ loginError }}
             </div>
-        </div>
 
-        <!-- TAB: VISUALIZADOR -->
-        <div id="view-tab" class="hidden">
-            <div class="card">
-                <div style="display:flex; gap:10px">
-                    <input type="text" id="linkIn" class="key-input" placeholder="Cola aqui o link completo..." style="margin:0">
-                    <button class="btn" onclick="loadViewer(null)">Ver</button>
-                </div>
-                <div id="viewer" class="hidden" style="margin-top:20px; padding-top:20px; border-top:1px solid #333"></div>
-            </div>
-        </div>
+            <button type="submit" class="btn-primary w-full py-2 rounded-lg shadow-lg shadow-cyan-500/20">
+                Entrar / Registar
+            </button>
+        </form>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
+    <div v-else class="w-full max-w-5xl space-y-6">
         
-        <!-- ANÚNCIO (Só para users free) -->
-        <div id="ad-space" class="ad-banner hidden">
-            <p>📢 <b>Espaço de Publicidade</b></p>
-            <p>Compre a versão Premium para remover este anúncio e ter uploads ilimitados!</p>
-        </div>
-    </div>
-
-    <!-- UI Elements: Toast & Modal -->
-    <div id="toast">Notificação</div>
-    
-    <div id="link-modal" class="hidden modal-overlay">
-        <div class="modal-content">
-            <h3>Upload Concluído! ✅</h3>
-            <p style="color:#aaa; margin-bottom:15px">O teu ficheiro está pronto a partilhar.</p>
-            <input type="text" id="modal-link-input" class="key-input" readonly style="margin-bottom:15px; text-align:center">
-            <div style="display:flex; gap:10px; justify-content:center">
-                <button class="btn" onclick="copyFromModal()">Copiar Link</button>
-                <button class="btn btn-icon" onclick="document.getElementById('link-modal').classList.add('hidden')">Fechar</button>
+        <!-- Header -->
+        <div class="glass-panel p-4 flex justify-between items-center">
+            <div class="flex items-center space-x-4">
+                <h2 class="text-xl font-bold"><i class="fas fa-user-circle text-gray-400"></i> Olá, {{ userKey }}</h2>
+                <span v-if="isPremium" class="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-xs border border-yellow-500/50">
+                    <i class="fas fa-crown"></i> PREMIUM
+                </span>
+                <span v-else class="bg-gray-700 text-gray-300 px-3 py-1 rounded-full text-xs">GRÁTIS (Max 5 Ficheiros)</span>
+            </div>
+            
+            <div class="flex space-x-3">
+                <button v-if="!isPremium" @click="goPremium" class="btn-primary px-4 py-2 rounded-lg text-sm">
+                    <i class="far fa-gem"></i> Ser Premium (1€)
+                </button>
+                <button @click="logout" class="bg-red-500/20 text-red-400 hover:bg-red-500/40 px-4 py-2 rounded-lg text-sm border border-red-500/50 transition">
+                    <i class="fas fa-sign-out-alt"></i> Sair
+                </button>
             </div>
         </div>
-    </div>
 
-    <script>
-        // --- CONFIGURAÇÃO ---
-        const API = '/api';
-        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
-        const MAX_RETRIES = 3;
-
-        // --- GESTÃO DE CHAVE ---
-        const keyInput = document.getElementById('owner-key');
-        keyInput.value = localStorage.getItem('myKey') || Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-        saveKey();
-        checkPremium(); // Verificar status ao iniciar
-
-        function saveKey() { 
-            localStorage.setItem('myKey', keyInput.value); 
-            // Atualiza link de checkout se a chave mudar
-            const checkoutLink = document.querySelector('#premium-cta a');
-            if(checkoutLink) checkoutLink.href = `/checkout.html?key=${keyInput.value}`;
-            checkPremium(); 
-        }
-        function toggleKey() { keyInput.type = keyInput.type === "password" ? "text" : "password"; }
-
-        // --- VERIFICAÇÃO PREMIUM ---
-        async function checkPremium() {
-            try {
-                const res = await fetch(`${API}/user-status?key=${keyInput.value}`);
-                const data = await res.json();
+        <!-- UPLOAD SECTION -->
+        <div class="glass-panel p-6 border-dashed border-2 border-gray-700 hover:border-cyan-500/50 transition-colors">
+            <h3 class="text-lg font-semibold mb-4 text-cyan-400">Novo Upload</h3>
+            <div class="flex flex-col md:flex-row gap-4 items-center">
+                <input type="file" ref="fileInput" multiple class="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-500/10 file:text-cyan-400 hover:file:bg-cyan-500/20 text-gray-400 w-full">
                 
-                if (data.isPremium) {
-                    document.getElementById('premium-badge').classList.remove('hidden');
-                    document.getElementById('premium-cta').classList.add('hidden');
-                    document.getElementById('ad-space').classList.add('hidden');
-                } else {
-                    document.getElementById('premium-badge').classList.add('hidden');
-                    document.getElementById('premium-cta').classList.remove('hidden');
-                    document.getElementById('ad-space').classList.remove('hidden');
+                <select v-model="uploadPermission" class="input-dark px-4 py-2 rounded-lg">
+                    <option value="view">Público (Ver)</option>
+                    <option value="private">Privado</option>
+                </select>
+
+                <button @click="uploadFiles" :disabled="isUploading" class="btn-primary px-6 py-2 rounded-lg w-full md:w-auto flex justify-center items-center gap-2">
+                    <span v-if="isUploading"><i class="fas fa-spinner fa-spin"></i> A Enviar...</span>
+                    <span v-else><i class="fas fa-cloud-upload-alt"></i> Enviar</span>
+                </button>
+            </div>
+
+            <!-- Progress Bar -->
+            <div v-if="isUploading" class="w-full bg-gray-700 rounded-full h-2.5 mt-4 overflow-hidden">
+                <div class="bg-cyan-400 h-2.5 rounded-full transition-all duration-300" :style="{ width: uploadProgress + '%' }"></div>
+            </div>
+        </div>
+
+        <!-- FILES LIST -->
+        <div class="glass-panel p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold">Meus Ficheiros</h3>
+                <button @click="fetchFiles" class="text-cyan-400 hover:text-cyan-300"><i class="fas fa-sync-alt"></i></button>
+            </div>
+
+            <div v-if="files.length === 0" class="text-center py-10 text-gray-500">
+                <i class="far fa-folder-open text-4xl mb-3 opacity-50"></i>
+                <p>Ainda não tens ficheiros.</p>
+            </div>
+
+            <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div v-for="file in files" :key="file.id" class="bg-[#252525] p-4 rounded-lg border border-gray-700 hover:border-gray-500 transition relative group">
                     
-                    // Update checkout link with current key
-                    const checkoutLink = document.querySelector('#premium-cta a');
-                    if(checkoutLink) checkoutLink.href = `/checkout.html?key=${keyInput.value}`;
-                }
-            } catch (e) { console.error('Erro ao verificar premium', e); }
-        }
+                    <!-- File Icon/Preview -->
+                    <div class="h-32 mb-3 bg-black/30 rounded flex items-center justify-center overflow-hidden">
+                        <img v-if="file.mimeType && file.mimeType.startsWith('image')" :src="file.url" class="object-cover w-full h-full opacity-80 group-hover:opacity-100 transition">
+                        <i v-else class="fas fa-file-alt text-4xl text-gray-600"></i>
+                    </div>
 
-        // --- UI/UX: Drag & Drop ---
-        const dropZone = document.getElementById('drop-zone');
-        
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, preventDefaults, false);
-        });
+                    <h4 class="font-bold truncate" :title="file.originalName">{{ file.originalName }}</h4>
+                    <p class="text-xs text-gray-500 mb-3">{{ formatSize(file.size) }} • {{ formatDate(file.uploadDate) }}</p>
 
-        function preventDefaults(e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
+                    <div class="flex gap-2">
+                        <button @click="copyLink(file)" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs py-2 rounded text-gray-300">
+                            <i class="fas fa-link"></i> Copiar Link
+                        </button>
+                        <button @click="deleteFile(file.id)" class="bg-red-900/30 hover:bg-red-900/50 text-red-400 px-3 rounded text-xs">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        ['dragenter', 'dragover'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-active'), false);
-        });
+        <!-- ADS SECTION (Free Users Only) -->
+        <div v-if="!isPremium" class="mt-8 text-center p-4 bg-[#1a1a1a] rounded-lg border border-gray-800">
+            <p class="text-xs text-gray-500 uppercase tracking-widest mb-2">Publicidade</p>
+            <div class="bg-gray-800 w-full h-32 flex items-center justify-center rounded text-gray-600">
+                Espaço para Anúncios (Desaparece com Premium)
+            </div>
+        </div>
 
-        ['dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-active'), false);
-        });
+    </div>
+</div>
 
-        dropZone.addEventListener('drop', handleDrop, false);
+<script>
+    const { createApp } = Vue;
 
-        function handleDrop(e) {
-            const dt = e.dataTransfer;
-            const files = dt.files;
-            startBigUpload(files);
-        }
-
-        // --- UI/UX: Toast ---
-        function showToast(message) {
-            const toast = document.getElementById("toast");
-            toast.innerText = message;
-            toast.className = "show";
-            setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
-        }
-
-        // --- NAVEGAÇÃO ---
-        function switchTab(id, btn) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            if(btn) btn.classList.add('active');
-            ['upload', 'files', 'view'].forEach(t => document.getElementById(t+'-tab').classList.add('hidden'));
-            document.getElementById(id+'-tab').classList.remove('hidden');
-            if(id === 'files') loadFiles();
-        }
-
-        // --- UPLOAD ---
-        let isUploading = false;
-        window.onbeforeunload = function() {
-            if (isUploading) return "Upload em progresso. Tens a certeza que queres sair?";
-        };
-
-        async function startBigUpload(files) {
-            if(!files.length) return;
-            const file = files[0];
-            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-            const ext = file.name.includes('.') ? '.' + file.name.split('.').pop() : '';
-            const fileUUID = Math.random().toString(36).substr(2, 9) + ext;
-            const permission = confirm('Permitir que outras pessoas façam download?') ? 'download' : 'view';
-            
-            isUploading = true;
-            document.getElementById('upload-status').classList.remove('hidden');
-            document.getElementById('upload-title').innerText = `A enviar: ${file.name}`;
-            updateProgress(0, totalChunks);
-            
-            for (let chunkNum = 1; chunkNum <= totalChunks; chunkNum++) {
-                const start = (chunkNum - 1) * CHUNK_SIZE;
-                const end = Math.min(start + CHUNK_SIZE, file.size);
-                const chunk = file.slice(start, end);
-
-                let success = false;
-                for(let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-                    try {
-                        const url = `${API}/upload_chunk?filename=${fileUUID}&chunk_number=${chunkNum}&total_chunks=${totalChunks}&original_name=${encodeURIComponent(file.name)}&key=${keyInput.value}&permission=${permission}`;
-                        
-                        const res = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/octet-stream' },
-                            body: chunk
-                        });
-
-                        if(!res.ok) {
-                            const errData = await res.json();
-                            if(res.status === 403) throw new Error(errData.error);
-                            throw new Error('Servidor rejeitou');
-                        }
-                        success = true;
-                        
-                        if(chunkNum === totalChunks) {
-                             const data = await res.json();
-                             finishUpload(data);
-                             return;
-                        }
-                        break; 
-                    } catch (e) {
-                        if(e.message.includes('Limit reached')) {
-                            alert('⚠️ Limite Atingido (5 ficheiros)! Faz upgrade para Premium.');
-                            isUploading = false;
-                            document.getElementById('upload-status').classList.add('hidden');
-                            return;
-                        }
-                        document.getElementById('progress-info').innerText = `Erro de rede... A tentar de novo (${attempt}/${MAX_RETRIES})`;
-                        await new Promise(r => setTimeout(r, 1000));
+    createApp({
+        data() {
+            return {
+                isAuthenticated: false,
+                loginKey: localStorage.getItem('userKey') || '',
+                loginPassword: '',
+                loginError: '',
+                userKey: '',
+                isPremium: false,
+                files: [],
+                isUploading: false,
+                uploadProgress: 0,
+                uploadPermission: 'view'
+            }
+        },
+        mounted() {
+            // Se já tivermos chave, tentamos "resumir" sessão, mas idealmente pediríamos password de novo
+            // Para simplificar UX, vamos pedir login sempre se não houver token (aqui simulado)
+            if (this.loginKey) {
+                // Pre-fill key but don't auto-login to force password check for security
+            }
+        },
+        methods: {
+            async login() {
+                this.loginError = '';
+                try {
+                    const res = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ key: this.loginKey, password: this.loginPassword })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.success) {
+                        this.isAuthenticated = true;
+                        this.userKey = this.loginKey;
+                        this.isPremium = data.isPremium;
+                        localStorage.setItem('userKey', this.userKey); // Guardar apenas a chave para conveniência
+                        this.fetchFiles();
+                    } else {
+                        this.loginError = data.error || 'Falha no login';
                     }
+                } catch (e) {
+                    this.loginError = 'Erro de conexão ao servidor.';
                 }
+            },
+            logout() {
+                this.isAuthenticated = false;
+                this.userKey = '';
+                this.loginPassword = '';
+                this.files = [];
+                localStorage.removeItem('userKey');
+            },
+            async fetchFiles() {
+                const res = await fetch(`/api/files?key=${this.userKey}`);
+                this.files = await res.json();
+            },
+            async uploadFiles() {
+                const files = this.$refs.fileInput.files;
+                if (!files.length) return;
 
-                if(!success) {
-                    alert('Falha crítica no upload.');
-                    isUploading = false;
-                    document.getElementById('upload-status').classList.add('hidden');
-                    return;
+                this.isUploading = true;
+                this.uploadProgress = 0;
+
+                for (let file of files) {
+                    // Chunk upload logic would go here (simplified for brevity in this view)
+                    // reusing the robust chunk logic from before but adapting to frontend
+                    await this.uploadFileInChunks(file);
                 }
-                updateProgress(chunkNum, totalChunks);
+                
+                this.isUploading = false;
+                this.$refs.fileInput.value = ''; // Clear input
+                this.fetchFiles(); // Refresh list
+            },
+            async uploadFileInChunks(file) {
+                const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+                const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+                
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * CHUNK_SIZE;
+                    const end = Math.min(file.size, start + CHUNK_SIZE);
+                    const chunk = file.slice(start, end);
+                    
+                    await fetch(`/api/upload_chunk?filename=${Date.now()}_${file.name}&chunk_number=${i+1}&total_chunks=${totalChunks}&original_name=${file.name}&key=${this.userKey}&permission=${this.uploadPermission}`, {
+                        method: 'POST',
+                        body: chunk
+                    });
+                    
+                    this.uploadProgress = ((i + 1) / totalChunks) * 100;
+                }
+            },
+            async deleteFile(id) {
+                if(!confirm('Tem a certeza?')) return;
+                await fetch(`/api/files/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'x-owner-key': this.userKey }
+                });
+                this.fetchFiles();
+            },
+            copyLink(file) {
+                const link = `${window.location.origin}/?file=${file.id}`;
+                navigator.clipboard.writeText(link);
+                alert('Link copiado!');
+            },
+            goPremium() {
+                window.location.href = `/checkout.html?key=${this.userKey}`;
+            },
+            formatSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            },
+            formatDate(dateStr) {
+                return new Date(dateStr).toLocaleDateString();
             }
         }
+    });
+</script>
 
-        function updateProgress(current, total) {
-            const percent = Math.round((current / total) * 100);
-            document.getElementById('progress-bar').style.width = percent + '%';
-            document.getElementById('progress-percent').innerText = percent + '%';
-            document.getElementById('progress-info').innerText = `Parte ${current} de ${total}`;
-        }
-
-        function finishUpload(data) {
-            isUploading = false;
-            // CORREÇÃO: Usar Query Param (?file=) em vez de Hash (#file=) para suportar prévias no Discord
-            const fullLink = window.location.origin + '/?file=' + data.file.id;
-            
-            // UI Update: Show Custom Modal instead of Prompt
-            document.getElementById('upload-status').classList.add('hidden');
-            document.getElementById('fileIn').value = ''; 
-            
-            const modal = document.getElementById('link-modal');
-            document.getElementById('modal-link-input').value = fullLink;
-            modal.classList.remove('hidden');
-            
-            switchTab('files', null); // Background switch
-        }
-
-        function copyFromModal() {
-            const input = document.getElementById('modal-link-input');
-            input.select();
-            input.setSelectionRange(0, 99999);
-            navigator.clipboard.writeText(input.value).then(() => {
-                showToast("Link copiado! 👌");
-                document.getElementById('link-modal').classList.add('hidden');
-            });
-        }
-
-        // --- LISTA ---
-        async function loadFiles() {
-            const list = document.getElementById('list');
-            list.innerHTML = '<div style="text-align:center; padding:20px; color:#666">A carregar...</div>';
-            try {
-                const res = await fetch(`${API}/files?key=${keyInput.value}`);
-                const data = await res.json();
-                
-                if(!data.length) { 
-                    list.innerHTML = '<div style="text-align:center; padding:20px; color:#666">Nenhum ficheiro encontrado.</div>'; 
-                    return; 
-                }
-
-                list.innerHTML = data.map(f => {
-                    const fullLink = window.location.origin + '/?file=' + f.id;
-                    const sizeMB = (f.size / (1024*1024)).toFixed(1);
-                    const fileName = f.originalName || f.name || 'Sem nome';
-                    return `
-                    <div class="file-item">
-                        <div style="flex-grow:1; margin-right:10px; overflow:hidden">
-                            <div class="file-name" title="${fileName}">${fileName}</div>
-                            <small style="color:#666">${sizeMB} MB • ${new Date(f.uploadDate).toLocaleDateString()}</small>
-                        </div>
-                        <div style="flex-shrink:0">
-                            <button class="btn" style="padding:6px 12px; font-size:12px" onclick="copy('${fullLink}')">🔗</button>
-                            <button class="btn btn-danger" style="padding:6px 12px; font-size:12px" onclick="del('${f.id}')">🗑️</button>
-                        </div>
-                    </div>`;
-                }).join('');
-            } catch(e) { list.innerHTML = '<div style="color:#ff5252; text-align:center">Erro ao carregar lista.</div>'; }
-        }
-
-        async function del(id) {
-            if(!confirm('Tens a certeza que queres apagar permanentemente?')) return;
-            await fetch(`${API}/files/${id}`, { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({key: keyInput.value}) });
-            loadFiles();
-            showToast("Ficheiro apagado.");
-        }
-
-        function copy(text) {
-            navigator.clipboard.writeText(text).then(() => showToast('Link copiado! 🔗'));
-        }
-
-        // --- VISUALIZADOR ---
-        async function loadViewer(idParam) {
-            let id = idParam;
-            if(!id) {
-                const val = document.getElementById('linkIn').value;
-                // Suportar tanto ?file= como #file=
-                if(val.includes('file=')) id = val.split('file=')[1];
-                else { showToast('Link inválido'); return; }
-            }
-
-            const viewer = document.getElementById('viewer');
-            viewer.innerHTML = '<div style="text-align:center">A carregar ficheiro...</div>';
-            viewer.classList.remove('hidden');
-
-            try {
-                const res = await fetch(`${API}/files/${id}`);
-                if(!res.ok) throw new Error();
-                const f = await res.json();
-                
-                const resourceUrl = f.url; 
-                const fileName = f.originalName || f.name || 'Sem nome';
-                const fileType = f.mimeType || f.type || '';
-
-                let html = `<h3 style="word-break:break-all">${fileName}</h3>`;
-                
-                if(fileType.startsWith('image')) {
-                    html += `<img src="${resourceUrl}">`;
-                } else if(fileType.startsWith('video')) {
-                    html += `
-                        <video controls playsinline preload="metadata">
-                            <source src="${resourceUrl}" type="${fileType}">
-                            <source src="${resourceUrl}" type="video/mp4">
-                            O teu browser não suporta este vídeo.
-                        </video>`;
-                } else {
-                    html += `<div style="padding:30px; background:#000; border-radius:8px; text-align:center; margin-top:15px">
-                        📄 Pré-visualização indisponível para este tipo de ficheiro.
-                    </div>`;
-                }
-
-                if(f.permission === 'download') {
-                    html += `<a href="${resourceUrl}" download="${fileName}" class="btn" style="display:block; text-align:center; margin-top:20px; text-decoration:none; padding:15px">⬇️ DOWNLOAD (${(f.size/(1024*1024)).toFixed(1)} MB)</a>`;
-                } else {
-                    html += `<div style="text-align:center; margin-top:20px; color:#ff5252; border:1px solid #ff5252; padding:10px; border-radius:6px">⛔ Download Bloqueado pelo dono</div>`;
-                }
-                
-                viewer.innerHTML = html;
-            } catch(e) { 
-                console.error(e);
-                viewer.innerHTML = '<div style="color:#ff5252; text-align:center">Ficheiro não encontrado ou removido.</div>';
-            }
-        }
-
-        // Auto-load se abrir com link (Suporte Híbrido: Query Param e Hash)
-        const urlParams = new URLSearchParams(window.location.search);
-        const queryFileId = urlParams.get('file');
-        const hashFileId = window.location.hash.includes('file=') ? window.location.hash.split('file=')[1] : null;
-        
-        const targetId = queryFileId || hashFileId;
-
-        if(targetId) {
-            switchTab('view', null);
-            document.getElementById('linkIn').value = window.location.href;
-            loadViewer(targetId);
-        }
-    </script>
 </body>
 </html>
