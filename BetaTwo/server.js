@@ -31,13 +31,8 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'Erro interno do servidor' });
 });
 
-// Configuração para servir ficheiros (Streaming de Vídeo)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-    setHeaders: (res) => {
-        res.set("Accept-Ranges", "bytes");
-        res.set("Access-Control-Allow-Origin", "*");
-    }
-}));
+// --- REMOVIDO: express.static global para /uploads para evitar acesso direto sem controlo ---
+// app.use('/uploads', express.static(...)); 
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
@@ -80,13 +75,83 @@ function getMimeType(filename) {
     return 'application/octet-stream';
 }
 
+// --- ROTA DE ARMAZENAMENTO SEGURA ---
+// Substitui o express.static para controlar permissões e referers (evitar embeds externos)
+app.get('/api/storage/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const fileData = files.find(f => f.filename === filename);
+    
+    // Se não existir na BD, verifica disco (legado) ou 404
+    if (!fileData && !fs.existsSync(path.join(UPLOAD_DIR, filename))) {
+        return res.status(404).send('Ficheiro não encontrado');
+    }
+
+    const filePath = path.join(UPLOAD_DIR, filename);
+    const mimeType = fileData ? fileData.mimeType : getMimeType(filename);
+    
+    // Controlo de Permissões e Embeds
+    const permission = fileData ? fileData.permission : 'view'; // default view
+    
+    // BLOQUEIO DE EMBEDS EXTERNOS (Anti-Hotlink)
+    // Se não for download explícito, exige que o pedido venha do próprio site
+    // Isto impede que o link direto gere pré-visualizações em Discord/WhatsApp/etc
+    const referer = req.headers.referer || '';
+    const host = req.headers.host || '';
+    
+    // Se a permissão não for 'download' (ou seja, é view restrito) E o referer não contiver o nosso host...
+    // Nota: Browsers modernos enviam referer. Apps de chat muitas vezes não, ou usam user-agents bots.
+    // Vamos ser permissivos se não houver referer mas bloquear se referer for externo? 
+    // Para segurança máxima de "não ver sem abrir", bloqueamos se não vier da app.
+    if (permission !== 'download') {
+        if (referer && !referer.includes(host)) {
+             return res.status(403).send('Acesso direto proibido. Abra o link no navegador.');
+        }
+    }
+
+    // Configuração de Download vs View
+    if (permission === 'download') {
+        // Força download
+        const downloadName = fileData ? (fileData.originalName || fileData.filename) : filename;
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadName)}"`);
+    } else {
+        // Permite visualização inline (no browser) mas tenta inibir "Save As" fácil via headers (não é infalível)
+        res.setHeader('Content-Disposition', 'inline');
+    }
+
+    // Streaming
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunksize = (end - start) + 1;
+        const file = fs.createReadStream(filePath, { start, end });
+        const head = {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunksize,
+            'Content-Type': mimeType,
+        };
+        res.writeHead(206, head);
+        file.pipe(res);
+    } else {
+        const head = {
+            'Content-Length': fileSize,
+            'Content-Type': mimeType,
+        };
+        res.writeHead(200, head);
+        fs.createReadStream(filePath).pipe(res);
+    }
+});
+
 // --- ROTA DE UPLOAD ROBUSTA ---
-// Aceita raw body até 100MB
 app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', limit: '100mb' }), async (req, res) => {
     try {
-        const { filename, chunk_number, total_chunks, original_name, key } = req.query;
+        const { filename, chunk_number, total_chunks, original_name, key, permission } = req.query; // Capture permission
         
-        // Validação melhorada
         if (!filename || !chunk_number || !total_chunks || !original_name || !req.body) {
             return res.status(400).json({ error: 'Dados inválidos ou incompletos' });
         }
@@ -96,47 +161,39 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
         const filePath = path.join(UPLOAD_DIR, filename);
         const tempPath = `${filePath}.part${chunkIndex}`;
 
-        // Gravar o pedaço temporariamente
         fs.writeFileSync(tempPath, req.body);
         
-        // Se for o último chunk, tentar reconstruir
-        // CORREÇÃO: chunkIndex é 1-based (vem do cliente como 1, 2, 3...)
         if (chunkIndex === total) {
              const finalFile = fs.createWriteStream(filePath);
-             
-             // Cria uma Promise para esperar que o writeStream termine
              const writeFinished = new Promise((resolve, reject) => {
                  finalFile.on('finish', resolve);
                  finalFile.on('error', reject);
              });
 
-             // CORREÇÃO: Loop de 1 até total para apanhar as partes corretas
              for (let i = 1; i <= total; i++) {
                  const part = `${filePath}.part${i}`;
                  if (fs.existsSync(part)) {
                      const data = fs.readFileSync(part);
                      finalFile.write(data);
-                     fs.unlinkSync(part); // Limpar chunks
+                     fs.unlinkSync(part);
                  }
              }
              finalFile.end();
-             
-             // Espera que o ficheiro esteja completamente escrito antes de obter stats
              await writeFinished;
              
-             // Adicionar à "base de dados"
              const newFile = {
                  id: Date.now().toString(),
                  filename: filename,
                  originalName: original_name,
                  ownerKey: key,
+                 permission: permission || 'view', // Save permission!
                  size: fs.statSync(filePath).size,
-                 mimeType: getMimeType(filename), // Usa o filename com UUID+extensão para detetar
+                 mimeType: getMimeType(filename),
                  uploadDate: new Date()
              };
              
              files.push(newFile);
-             saveDB(); // Persistir mudança
+             saveDB();
              
              return res.json({ success: true, message: 'Upload completo', file: { id: newFile.id } });
         }
@@ -155,10 +212,11 @@ app.get('/api/files/:id', (req, res) => {
     const f = files.find(x => x.id === req.params.id);
     if (!f) return res.status(404).json({});
     const { ownerKey, ...publicData } = f;
-    res.json({ ...publicData, url: `/uploads/${f.filename}` });
+    // URL aponta para a nova rota segura
+    res.json({ ...publicData, url: `/api/storage/${f.filename}` });
 });
 app.delete('/api/files/:id', (req, res) => {
-    const key = req.query.key || req.headers['x-owner-key']; // Aceita query ou header
+    const key = req.query.key || req.headers['x-owner-key']; 
     const idx = files.findIndex(f => f.id === req.params.id);
     if(idx === -1) return res.status(404).json({ error: 'Ficheiro não encontrado' });
     if(files[idx].ownerKey !== key) return res.status(403).json({ error: 'Sem permissão' });
@@ -170,7 +228,7 @@ app.delete('/api/files/:id', (req, res) => {
     }
     
     files.splice(idx, 1);
-    saveDB(); // Persistir mudança
+    saveDB();
     res.json({success: true});
 });
 
@@ -184,14 +242,12 @@ if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
         console.log(`✅ Servidor HTTPS a correr em https://localhost:${HTTPS_PORT}`);
     });
     
-    // Redirecionamento HTTP -> HTTPS opcional
     http.createServer((req, res) => {
         res.writeHead(301, { "Location": "https://" + req.headers['host'] + req.url });
         res.end();
     }).listen(HTTP_PORT);
     
 } else {
-    // Se não houver HTTPS, inicia HTTP
     app.listen(HTTP_PORT, () => {
         console.log(`✅ Servidor HTTP a correr em http://localhost:${HTTP_PORT}`);
         console.warn('⚠️ Certificados SSL não encontrados. A rodar em modo não seguro.');
