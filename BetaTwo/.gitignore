@@ -1,0 +1,46 @@
+# Variáveis de Ambiente (NUNCA commitar!)
+.env
+.env.local
+.env.production
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Uploads (não versionar ficheiros de utilizadores)
+uploads/
+*.part
+*.part[0-9]*
+
+# Base de Dados (JSON local)
+database.json
+users.json
+
+# Logs
+*.log
+logs/
+
+# Sistema Operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# SSL Certificates (não versionar chaves privadas!)
+*.pem
+*.key
+*.crt
+*.cert
+
+# Temporarios
+*.tmp
+*.bak
+*.cache
