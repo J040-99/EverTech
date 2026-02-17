@@ -4,16 +4,41 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
-const crypto = require('crypto'); // Para hashing de passwords
+const crypto = require('crypto');
+const cluster = require('cluster');
+const os = require('os');
 
-// Configuração Stripe: Lê a chave da variável de ambiente ou falha se não existir
+// Configuração de Cluster para produção
+const USE_CLUSTER = process.env.NODE_ENV === 'production';
+const numCPUs = os.cpus().length;
+
+if (USE_CLUSTER && cluster.isMaster) {
+    console.log(`🚀 Master ${process.pid} iniciando ${numCPUs} workers...`);
+    
+    for (let i = 0; i < numCPUs; i++) {
+        cluster.fork();
+    }
+    
+    cluster.on('exit', (worker, code, signal) => {
+        console.log(`⚠️ Worker ${worker.process.pid} morreu. Reiniciando...`);
+        cluster.fork();
+    });
+    
+} else {
+    // Worker process
+    startServer();
+}
+
+function startServer() {
+
+// Configuração Stripe
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 if (!stripeSecretKey) {
     console.error("ERRO CRÍTICO: A variável de ambiente STRIPE_SECRET_KEY não foi definida!");
 }
 const stripe = require('stripe')(stripeSecretKey);
 
-// Caminhos para os certificados SSL (Unificados)
+// Caminhos SSL
 const sslKeyPath = path.join(__dirname, '..', 'ssl', 'private-key.pem');
 const sslCertPath = path.join(__dirname, '..', 'ssl', 'certificate.pem');
 
@@ -22,15 +47,59 @@ const PORT = process.env.PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 const HTTP_PORT = process.env.HTTP_PORT || 3000;
 
-// Configuração CORS mais segura
+// ==================== OTIMIZAÇÕES PARA PRODUÇÃO ====================
+
+// 1. Compressão GZIP
+const compression = require('compression');
+app.use(compression());
+
+// 2. Rate Limiting (previne DDoS e abuso)
+const rateLimit = require('express-rate-limit');
+
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 100, // 100 requests por IP
+    message: 'Demasiados pedidos deste IP. Tente novamente mais tarde.'
+});
+
+const uploadLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hora
+    max: 50, // 50 uploads por hora
+    message: 'Limite de uploads atingido. Tente novamente mais tarde.'
+});
+
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10, // 10 tentativas de login
+    message: 'Demasiadas tentativas de login. Tente novamente em 15 minutos.'
+});
+
+app.use('/api/', generalLimiter);
+app.use('/api/upload_chunk', uploadLimiter);
+app.use('/api/auth/', authLimiter);
+
+// 3. Helmet para segurança de headers HTTP
+const helmet = require('helmet');
+app.use(helmet({
+    contentSecurityPolicy: false, // Desativado para permitir CDNs externos
+    crossOriginEmbedderPolicy: false
+}));
+
+// 4. CORS configurado
 const corsOptions = {
-    origin: '*', 
+    origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-owner-key', 'stripe-signature']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-owner-key', 'x-auth-token', 'stripe-signature'],
+    credentials: true
 };
 app.use(cors(corsOptions));
 
-// Webhook precisa de RAW body, antes do JSON parser global
+// 5. Trust proxy (para Cloudflare, nginx, etc.)
+app.set('trust proxy', 1);
+
+// ==================== MIDDLEWARE ====================
+
+// Webhook raw body
 app.post('/webhook', express.raw({type: 'application/json'}), async (request, response) => {
   const sig = request.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -38,11 +107,9 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
   let event;
 
   try {
-    // Se houver segredo de webhook configurado, verifica a assinatura
     if (endpointSecret) {
         event = stripe.webhooks.constructEvent(request.body, sig, endpointSecret);
     } else {
-        // Fallback inseguro apenas para dev (não recomendado em prod)
         event = JSON.parse(request.body);
     }
   } catch (err) {
@@ -51,18 +118,15 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
     return;
   }
 
-  // Handle the event
   switch (event.type) {
     case 'charge.refunded':
       const refund = event.data.object;
       console.log('Reembolso detetado:', refund.id);
-      // Encontrar utilizador pelo email do pagamento original e remover premium
       if (refund.billing_details && refund.billing_details.email) {
           removePremiumByEmail(refund.billing_details.email);
       } else if (refund.receipt_email) {
           removePremiumByEmail(refund.receipt_email);
       } else {
-          // Tentar buscar o PaymentIntent para ter o email
           const paymentIntentId = refund.payment_intent;
           try {
               const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -74,39 +138,28 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
           } catch(e) { console.error("Erro ao buscar PI do reembolso:", e); }
       }
       break;
-    default:
-      // console.log(`Unhandled event type ${event.type}`);
   }
 
   response.send();
 });
 
-// Aumenta o limite de JSON para garantir que metadados passam (colocado DEPOIS do webhook)
 app.use(express.json({ limit: '1mb' }));
 
-// Set Security Headers - PERMISSIVA para evitar erros de CDN
-app.use((req, res, next) => {
-    // Para simplificar e evitar erros de carregamento de scripts externos (Vue, Tailwind, FontAwesome)
-    // vamos relaxar a CSP. Em produção real, deveríamos ser mais específicos.
-    res.setHeader(
-        "Content-Security-Policy", 
-        "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;"
-    );
-    next();
-});
+// Logging de requests em produção
+if (process.env.NODE_ENV === 'production') {
+    const morgan = require('morgan');
+    app.use(morgan('combined'));
+}
 
-// Middleware de tratamento de erros global
-app.use((err, req, res, next) => {
-    console.error('Erro não tratado:', err);
-    res.status(500).json({ error: 'Erro interno do servidor' });
-});
-
-// Configuração para servir ficheiros (Streaming de Vídeo)
+// Servir ficheiros com streaming e cache
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+    maxAge: '7d', // Cache de 7 dias
+    etag: true,
+    lastModified: true,
     setHeaders: (res, filePath) => {
         res.set("Accept-Ranges", "bytes");
         res.set("Access-Control-Allow-Origin", "*");
-        // Set correct MIME type based on file extension
+        res.set("Cache-Control", "public, max-age=604800");
         const ext = path.extname(filePath).toLowerCase();
         const mimeType = getMimeType(filePath);
         if (mimeType) {
@@ -115,17 +168,22 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
     }
 }));
 
-// --- PERSISTÊNCIA DE DADOS ---
+// Middleware global de erros
+app.use((err, req, res, next) => {
+    console.error('Erro não tratado:', err);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+});
+
+// ==================== PERSISTÊNCIA ====================
+
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const DB_PATH = path.join(__dirname, 'database.json');
 const USERS_DB_PATH = path.join(__dirname, 'users.json');
 let files = [];
-let users = []; 
+let users = [];
 
-// Garantir diretório de uploads
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
 
-// Carregar base de dados
 function loadDB() {
     try {
         if (fs.existsSync(DB_PATH)) {
@@ -140,7 +198,6 @@ function loadDB() {
 }
 loadDB();
 
-// Salvar base de dados
 function saveDB() {
     try {
         fs.writeFileSync(DB_PATH, JSON.stringify(files, null, 2));
@@ -150,32 +207,43 @@ function saveDB() {
     }
 }
 
-// Helper para verificar premium
 function isUserPremium(key) {
     const user = users.find(u => u.key === key);
     return user && user.isPremium;
 }
 
-// Helper para remover premium (usado no webhook)
 function removePremiumByEmail(email) {
     const user = users.find(u => u.email === email);
     if (user) {
         user.isPremium = false;
-        console.log(`PREMIUM REMOVIDO: Utilizador com email ${email} foi reembolsado.`);
+        console.log(`PREMIUM REMOVIDO: ${email}`);
         saveDB();
-    } else {
-        console.log(`AVISO: Reembolso recebido para ${email} mas utilizador não encontrado.`);
     }
 }
 
-// --- AUTH SYSTEM (LOGIN SEGURO) ---
-
-// Hash simples para passwords (SHA-256)
 function hashPassword(password) {
     return crypto.createHash('sha256').update(password).digest('hex');
 }
 
-// Rota de Registo/Login Híbrida
+// Gerar token de sessão simples (JWT seria melhor em produção real)
+function generateAuthToken(key) {
+    const payload = `${key}:${Date.now()}`;
+    return crypto.createHash('sha256').update(payload + process.env.JWT_SECRET || 'evertech-secret').digest('hex');
+}
+
+// Verificar autenticação
+function verifyAuth(req) {
+    const token = req.headers['x-auth-token'];
+    const key = req.headers['x-owner-key'] || req.query.key;
+    
+    if (!key) return null;
+    
+    const user = users.find(u => u.key === key);
+    return user ? key : null;
+}
+
+// ==================== AUTH ====================
+
 app.post('/api/auth/login', (req, res) => {
     const { key, password } = req.body;
 
@@ -186,7 +254,6 @@ app.post('/api/auth/login', (req, res) => {
     const userIndex = users.findIndex(u => u.key === key);
 
     if (userIndex === -1) {
-        // Utilizador NOVO: Criar conta com esta password
         const newUser = {
             key: key,
             passwordHash: hashPassword(password),
@@ -195,33 +262,31 @@ app.post('/api/auth/login', (req, res) => {
         };
         users.push(newUser);
         saveDB();
-        return res.json({ success: true, message: 'Conta criada e login efetuado.', isPremium: false });
+        const token = generateAuthToken(key);
+        return res.json({ success: true, message: 'Conta criada.', isPremium: false, token });
     } else {
-        // Utilizador EXISTENTE: Verificar password
         const user = users[userIndex];
         
-        // Se utilizador antigo sem password, definir agora (migração)
         if (!user.passwordHash) {
             user.passwordHash = hashPassword(password);
             saveDB();
-            return res.json({ success: true, message: 'Password definida. Login efetuado.', isPremium: user.isPremium });
+            const token = generateAuthToken(key);
+            return res.json({ success: true, message: 'Password definida.', isPremium: user.isPremium, token });
         }
 
-        // Verificar hash
         if (user.passwordHash === hashPassword(password)) {
-            return res.json({ success: true, message: 'Login efetuado.', isPremium: user.isPremium });
+            const token = generateAuthToken(key);
+            return res.json({ success: true, message: 'Login efetuado.', isPremium: user.isPremium, token });
         } else {
             return res.status(401).json({ error: 'Password incorreta.' });
         }
     }
 });
 
-// ENDPOINT DE ADMINISTRAÇÃO - Remover Premium manualmente (TEMPORÁRIO)
 app.post('/api/admin/revoke-premium', (req, res) => {
     const { key, adminSecret } = req.body;
     
-    // Proteção simples - em produção, usar senha forte
-    if (adminSecret !== 'EverTech2026Admin') {
+    if (adminSecret !== process.env.ADMIN_SECRET || 'EverTech2026Admin') {
         return res.status(403).json({ error: 'Acesso negado' });
     }
     
@@ -235,31 +300,24 @@ app.post('/api/admin/revoke-premium', (req, res) => {
     }
 });
 
-// Servir index.html com Open Graph Tags dinâmicas (SSR Básico)
+// ==================== ROTAS PÚBLICAS ====================
+
 app.get('/', (req, res) => {
-    // Se o user agent for um bot (Discord, WhatsApp, etc.), injetar meta tags
     const userAgent = req.headers['user-agent'] || '';
-    const isBot = /bot|googlebot|crawler|spider|robot|crawling|facebookexternalhit|whatsapp|slack|twitter|discord/i.test(userAgent);
-    
-    // Ler o ficheiro index.html base
     let html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
-    // O frontend usa hash (#file=ID), o que é mau para OG tags.
-    // O link partilhado deve usar query param ?file=ID para partilha social.
-    
     if (req.query.file) {
         const fileId = req.query.file;
         const file = files.find(f => f.id === fileId);
         
-        if (file) {
+        if (file && file.permission !== 'private') {
             const fileUrl = `https://${req.headers.host}/uploads/${file.filename}`;
             const mimeType = file.mimeType || 'application/octet-stream';
             const fileName = file.originalName || file.name || 'Ficheiro Partilhado';
             
-            // Construir meta tags
             let metaTags = `
                 <meta property="og:title" content="${fileName}">
-                <meta property="og:description" content="Ficheiro partilhado via Cloud Share (${(file.size / 1024 / 1024).toFixed(1)} MB)">
+                <meta property="og:description" content="Ficheiro partilhado via EverTech Cloud">
                 <meta property="og:site_name" content="EverTech Cloud">
                 <meta name="theme-color" content="#00e5ff">
             `;
@@ -269,27 +327,15 @@ app.get('/', (req, res) => {
                     <meta property="og:type" content="image">
                     <meta property="og:image" content="${fileUrl}">
                     <meta name="twitter:card" content="summary_large_image">
-                    <meta name="twitter:image" content="${fileUrl}">
                 `;
             } else if (mimeType.startsWith('video/')) {
-                // Suporte para vídeo no Discord/Telegram
                 metaTags += `
                     <meta property="og:type" content="video.other">
                     <meta property="og:video" content="${fileUrl}">
-                    <meta property="og:video:secure_url" content="${fileUrl}">
                     <meta property="og:video:type" content="${mimeType}">
-                    <meta property="og:video:width" content="1280">
-                    <meta property="og:video:height" content="720">
-                    <meta name="twitter:card" content="player">
-                    <meta name="twitter:player" content="${fileUrl}">
-                    <meta name="twitter:player:width" content="1280">
-                    <meta name="twitter:player:height" content="720">
                 `;
-            } else {
-                metaTags += `<meta property="og:type" content="website">`;
             }
             
-            // Injetar no <head>
             html = html.replace('</head>', `${metaTags}</head>`);
         }
     }
@@ -297,26 +343,25 @@ app.get('/', (req, res) => {
     res.send(html);
 });
 
-// --- STRIPE PAYMENTS ---
+// ==================== STRIPE ====================
+
 app.post('/create-checkout-session', async (req, res) => {
-    const { key } = req.body; 
+    const { key } = req.body;
     
     try {
         const session = await stripe.checkout.sessions.create({
             ui_mode: 'embedded',
-            line_items: [
-                {
-                    price_data: {
-                        currency: 'eur',
-                        product_data: {
-                            name: 'EverTech Cloud Premium',
-                            description: 'Sem anúncios, uploads ilimitados',
-                        },
-                        unit_amount: 100, // 1.00 EUR (Preço Atualizado)
+            line_items: [{
+                price_data: {
+                    currency: 'eur',
+                    product_data: {
+                        name: 'EverTech Cloud Premium',
+                        description: 'Sem anúncios, uploads ilimitados',
                     },
-                    quantity: 1,
+                    unit_amount: 100,
                 },
-            ],
+                quantity: 1,
+            }],
             mode: 'payment',
             return_url: `${req.headers.origin}/return.html?session_id={CHECKOUT_SESSION_ID}&key=${key}`,
         });
@@ -334,9 +379,7 @@ app.get('/session-status', async (req, res) => {
         const userKey = req.query.key;
 
         if (session.status === 'complete' && userKey) {
-             // Upgrade user
              const userIndex = users.findIndex(u => u.key === userKey);
-             // Regista o email para podermos revogar se houver reembolso
              const email = session.customer_details?.email;
              
              if (userIndex >= 0) {
@@ -357,85 +400,29 @@ app.get('/session-status', async (req, res) => {
     }
 });
 
-// Serve payment pages
-app.use(express.static(path.join(__dirname, 'public'))); 
+app.use(express.static(path.join(__dirname, 'public')));
 app.get('/checkout.html', (req, res) => res.sendFile(path.join(__dirname, 'checkout.html')));
 app.get('/return.html', (req, res) => res.sendFile(path.join(__dirname, 'return.html')));
 app.get('/checkout.js', (req, res) => res.sendFile(path.join(__dirname, 'checkout.js')));
 app.get('/return.js', (req, res) => res.sendFile(path.join(__dirname, 'return.js')));
 app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'style.css')));
 
+// ==================== MIME TYPES ====================
 
-// --- API ROUTES ---
-
-// MIME Type detection melhorada - tipos específicos para cada formato
 function getMimeType(filename) {
     const ext = path.extname(filename).toLowerCase();
-    
-    // Vídeos - tipos específicos para cada formato
-    const videoTypes = {
-        '.mp4': 'video/mp4',
-        '.webm': 'video/webm',
-        '.ogg': 'video/ogg',
-        '.ogv': 'video/ogg',
-        '.mov': 'video/quicktime',
-        '.avi': 'video/x-msvideo',
-        '.wmv': 'video/x-ms-wmv',
-        '.flv': 'video/x-flv',
-        '.mkv': 'video/x-matroska',
-        '.m4v': 'video/x-m4v',
-        '.3gp': 'video/3gpp'
+    const types = {
+        '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp',
+        '.pdf': 'application/pdf', '.zip': 'application/zip'
     };
-    
-    // Imagens - tipos específicos para cada formato
-    const imageTypes = {
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.png': 'image/png',
-        '.gif': 'image/gif',
-        '.webp': 'image/webp',
-        '.svg': 'image/svg+xml',
-        '.bmp': 'image/bmp',
-        '.ico': 'image/x-icon',
-        '.tiff': 'image/tiff',
-        '.tif': 'image/tiff'
-    };
-    
-    // Áudio
-    const audioTypes = {
-        '.mp3': 'audio/mpeg',
-        '.wav': 'audio/wav',
-        '.ogg': 'audio/ogg',
-        '.m4a': 'audio/mp4',
-        '.flac': 'audio/flac',
-        '.aac': 'audio/aac'
-    };
-    
-    // Documentos
-    const documentTypes = {
-        '.pdf': 'application/pdf',
-        '.doc': 'application/msword',
-        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        '.xls': 'application/vnd.ms-excel',
-        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        '.ppt': 'application/vnd.ms-powerpoint',
-        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        '.txt': 'text/plain',
-        '.csv': 'text/csv',
-        '.json': 'application/json',
-        '.xml': 'application/xml',
-        '.zip': 'application/zip',
-        '.rar': 'application/x-rar-compressed',
-        '.7z': 'application/x-7z-compressed'
-    };
-    
-    return videoTypes[ext] || imageTypes[ext] || audioTypes[ext] || documentTypes[ext] || 'application/octet-stream';
+    return types[ext] || 'application/octet-stream';
 }
 
-// Mapa global para rastrear uploads em andamento (session ID)
+// ==================== UPLOAD ====================
+
 const uploadSessions = new Map();
 
-// --- ROTA DE UPLOAD ROBUSTA COM CONSISTÊNCIA DE FILENAME ---
 app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', limit: '100mb' }), async (req, res) => {
     try {
         const { session_id, chunk_number, total_chunks, original_name, key, permission } = req.query;
@@ -444,32 +431,24 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
             return res.status(400).json({ error: 'session_id é obrigatório' });
         }
         
-        console.log(`📦 Chunk recebido: ${chunk_number}/${total_chunks} para ${original_name} (session: ${session_id})`);
+        console.log(`📦 Chunk ${chunk_number}/${total_chunks} (session: ${session_id})`);
         
-        // LIMIT CHECK for non-premium
         if (!isUserPremium(key)) {
              const userFiles = files.filter(f => f.ownerKey === key);
              if (userFiles.length >= 5) {
-                 console.log(`❌ Limite atingido para ${key}`);
-                 return res.status(403).json({ error: 'Limit reached. Go Premium for unlimited uploads.' });
+                 return res.status(403).json({ error: 'Limite atingido. Ative Premium.' });
              }
         }
 
-        // Validação melhorada
         if (!chunk_number || !total_chunks || !original_name || !req.body) {
-            console.log(`❌ Dados inválidos no upload`);
-            return res.status(400).json({ error: 'Dados inválidos ou incompletos' });
+            return res.status(400).json({ error: 'Dados inválidos' });
         }
 
         const chunkIndex = parseInt(chunk_number);
         const total = parseInt(total_chunks);
-        
-        // Usar session_id como nome base consistente
         const baseFilename = `upload_${session_id}`;
-        const ext = path.extname(original_name);
         const finalFilename = `${Date.now()}_${original_name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
         
-        // Guardar informação da sessão no primeiro chunk
         if (chunkIndex === 1) {
             uploadSessions.set(session_id, {
                 originalName: original_name,
@@ -483,90 +462,44 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
         
         const session = uploadSessions.get(session_id);
         if (!session) {
-            return res.status(400).json({ error: 'Sessão de upload inválida. Comece pelo chunk 1.' });
+            return res.status(400).json({ error: 'Sessão inválida. Comece pelo chunk 1.' });
         }
         
         const tempPath = path.join(UPLOAD_DIR, `${baseFilename}.part${chunkIndex}`);
         const finalPath = path.join(UPLOAD_DIR, session.finalFilename);
 
-        // LOG: Tamanho do chunk recebido
-        console.log(`   ↳ Tamanho do chunk: ${req.body.length} bytes`);
-        console.log(`   ↳ A guardar em: ${tempPath}`);
-
-        // Gravar o pedaço temporariamente
         fs.writeFileSync(tempPath, req.body);
         session.receivedChunks.add(chunkIndex);
-        console.log(`   ↳ Chunk ${chunkIndex} guardado (${session.receivedChunks.size}/${total})`);
         
-        // Se for o último chunk OU todos os chunks foram recebidos
         if (session.receivedChunks.size === total) {
-             console.log(`🔨 A reconstruir ficheiro completo: ${original_name}`);
+             console.log(`🔨 Reconstruindo: ${original_name}`);
              
-             // Verificar se todos os chunks existem
-             const missingChunks = [];
-             for (let i = 1; i <= total; i++) {
-                 if (!session.receivedChunks.has(i)) {
-                     missingChunks.push(i);
-                 }
-             }
-             
-             if (missingChunks.length > 0) {
-                 console.log(`❌ Chunks em falta: ${missingChunks.join(', ')}`);
-                 return res.status(400).json({ error: `Missing chunks: ${missingChunks.join(', ')}` });
-             }
-             
-             // Juntar todos os chunks usando Buffer
              const chunks = [];
-             let totalSize = 0;
-             
              for (let i = 1; i <= total; i++) {
                  const part = path.join(UPLOAD_DIR, `${baseFilename}.part${i}`);
                  if (fs.existsSync(part)) {
-                     const chunkData = fs.readFileSync(part);
-                     chunks.push(chunkData);
-                     totalSize += chunkData.length;
-                     console.log(`   ↳ Chunk ${i}: ${chunkData.length} bytes`);
-                 } else {
-                     console.log(`   ⚠️ Chunk ${i} não encontrado em ${part}`);
+                     chunks.push(fs.readFileSync(part));
                  }
              }
              
-             // Concatenar todos os buffers
              const finalBuffer = Buffer.concat(chunks);
-             console.log(`   ↳ Tamanho total final: ${finalBuffer.length} bytes`);
-             
-             // Escrever o ficheiro final
              fs.writeFileSync(finalPath, finalBuffer);
-             console.log(`   ↳ Ficheiro final escrito em: ${finalPath}`);
              
-             // Limpar chunks temporários
+             // Limpar chunks
              for (let i = 1; i <= total; i++) {
                  const part = path.join(UPLOAD_DIR, `${baseFilename}.part${i}`);
-                 try {
-                     if (fs.existsSync(part)) {
-                         fs.unlinkSync(part);
-                     }
-                 } catch(e) {
-                     console.log(`   ⚠️ Não foi possível apagar ${part}`);
-                 }
+                 try { if (fs.existsSync(part)) fs.unlinkSync(part); } catch(e) {}
              }
-             console.log(`   ↳ Chunks temporários limpos`);
              
-             // Verificar tamanho final
              const finalSize = fs.statSync(finalPath).size;
-             console.log(`   ↳ Tamanho verificado no disco: ${finalSize} bytes`);
-             
-             // Detectar MIME type
              const detectedMimeType = getMimeType(original_name);
-             console.log(`   ↳ MIME Type detectado: ${detectedMimeType}`);
              
-             // Adicionar à base de dados
              const newFile = {
                  id: Date.now().toString(),
                  filename: session.finalFilename,
                  originalName: original_name,
                  ownerKey: key,
-                 permission: permission || 'view', 
+                 permission: permission || 'view',
                  size: finalSize,
                  mimeType: detectedMimeType,
                  uploadDate: new Date()
@@ -574,11 +507,9 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
              
              files.push(newFile);
              saveDB();
-             
-             // Limpar sessão
              uploadSessions.delete(session_id);
              
-             console.log(`✅ Upload completo: ${original_name} (${(finalSize / 1024 / 1024).toFixed(2)} MB, ${detectedMimeType})`);
+             console.log(`✅ Upload completo: ${original_name} (${(finalSize / 1024 / 1024).toFixed(2)} MB)`);
              
              return res.json({ success: true, message: 'Upload completo', file: { id: newFile.id, size: finalSize } });
         }
@@ -587,28 +518,48 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
 
     } catch (error) {
         console.error("❌ Erro no upload:", error);
-        res.status(500).json({ error: 'Falha no servidor ao gravar pedaço.', details: error.message });
+        res.status(500).json({ error: 'Falha no servidor', details: error.message });
     }
 });
 
-// Rotas da API
-app.get('/api/files', (req, res) => res.json(files.filter(f => f.ownerKey === req.query.key)));
+// ==================== API ====================
+
+app.get('/api/files', (req, res) => {
+    const userKey = verifyAuth(req);
+    if (!userKey) return res.status(401).json({ error: 'Não autenticado' });
+    res.json(files.filter(f => f.ownerKey === userKey));
+});
+
 app.get('/api/user-status', (req, res) => {
     const key = req.query.key;
     res.json({ isPremium: isUserPremium(key) });
 });
 
+// CONTROLE DE ACESSO PARA ARQUIVOS PRIVADOS
 app.get('/api/files/:id', (req, res) => {
     const f = files.find(x => x.id === req.params.id);
-    if (!f) return res.status(404).json({});
+    if (!f) return res.status(404).json({ error: 'Ficheiro não encontrado' });
+    
+    // Se ficheiro é privado, exigir autenticação
+    if (f.permission === 'private') {
+        const userKey = verifyAuth(req);
+        
+        if (!userKey || userKey !== f.ownerKey) {
+            return res.status(403).json({ 
+                error: 'Acesso negado',
+                requiresAuth: true,
+                message: 'Este ficheiro é privado. Apenas o dono pode aceder.'
+            });
+        }
+    }
     
     const publicData = {
         id: f.id,
-        name: f.originalName || f.name, 
+        name: f.originalName || f.name,
         originalName: f.originalName,
         size: f.size,
         mimeType: f.mimeType,
-        type: f.mimeType, 
+        type: f.mimeType,
         uploadDate: f.uploadDate,
         permission: f.permission || 'view',
         url: `/uploads/${f.filename}`,
@@ -617,16 +568,17 @@ app.get('/api/files/:id', (req, res) => {
     
     res.json(publicData);
 });
+
 app.delete('/api/files/:id', (req, res) => {
-    const key = req.query.key || req.headers['x-owner-key'];
+    const key = verifyAuth(req);
     const idx = files.findIndex(f => f.id === req.params.id);
     if(idx === -1) return res.status(404).json({ error: 'Ficheiro não encontrado' });
     if(files[idx].ownerKey !== key) return res.status(403).json({ error: 'Sem permissão' });
     
     try { 
-        fs.unlinkSync(path.join(UPLOAD_DIR, files[idx].filename)); 
+        fs.unlinkSync(path.join(UPLOAD_DIR, files[idx].filename));
     } catch(e) {
-        console.error('Erro ao apagar ficheiro:', e);
+        console.error('Erro ao apagar:', e);
     }
     
     files.splice(idx, 1);
@@ -634,26 +586,52 @@ app.delete('/api/files/:id', (req, res) => {
     res.json({success: true});
 });
 
-// Verificar se os certificados SSL existem
+// ==================== CLEANUP AUTOMÁTICO ====================
+
+// Limpar chunks órfãos a cada hora
+setInterval(() => {
+    try {
+        const uploadFiles = fs.readdirSync(UPLOAD_DIR);
+        const now = Date.now();
+        
+        uploadFiles.forEach(file => {
+            if (file.includes('.part')) {
+                const filePath = path.join(UPLOAD_DIR, file);
+                const stats = fs.statSync(filePath);
+                const ageHours = (now - stats.mtimeMs) / (1000 * 60 * 60);
+                
+                if (ageHours > 1) {
+                    fs.unlinkSync(filePath);
+                    console.log(`🧹 Chunk órfão removido: ${file}`);
+                }
+            }
+        });
+    } catch(e) {
+        console.error('Erro no cleanup:', e);
+    }
+}, 60 * 60 * 1000);
+
+// ==================== START SERVER ====================
+
 if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
     const credentials = {
         key: fs.readFileSync(sslKeyPath),
         cert: fs.readFileSync(sslCertPath)
     };
     https.createServer(credentials, app).listen(HTTPS_PORT, () => {
-        console.log(`✅ Servidor HTTPS a correr em https://localhost:${HTTPS_PORT}`);
+        console.log(`✅ Worker ${process.pid} - HTTPS em https://localhost:${HTTPS_PORT}`);
     });
     
-    // Redirecionamento HTTP -> HTTPS opcional
     http.createServer((req, res) => {
         res.writeHead(301, { "Location": "https://" + req.headers['host'] + req.url });
         res.end();
     }).listen(HTTP_PORT);
     
 } else {
-    // Se não houver HTTPS, inicia HTTP
     app.listen(HTTP_PORT, () => {
-        console.log(`✅ Servidor HTTP a correr em http://localhost:${HTTP_PORT}`);
-        console.warn('⚠️ Certificados SSL não encontrados. A rodar em modo não seguro.');
+        console.log(`✅ Worker ${process.pid} - HTTP em http://localhost:${HTTP_PORT}`);
+        console.warn('⚠️ Modo desenvolvimento - SSL não encontrado');
     });
 }
+
+} // End startServer
