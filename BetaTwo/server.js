@@ -432,13 +432,19 @@ function getMimeType(filename) {
     return videoTypes[ext] || imageTypes[ext] || audioTypes[ext] || documentTypes[ext] || 'application/octet-stream';
 }
 
-// --- ROTA DE UPLOAD ROBUSTA COM LOGS DETALHADOS ---
-// Aceita raw body até 100MB
+// Mapa global para rastrear uploads em andamento (session ID)
+const uploadSessions = new Map();
+
+// --- ROTA DE UPLOAD ROBUSTA COM CONSISTÊNCIA DE FILENAME ---
 app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', limit: '100mb' }), async (req, res) => {
     try {
-        const { filename, chunk_number, total_chunks, original_name, key, permission } = req.query; 
+        const { session_id, chunk_number, total_chunks, original_name, key, permission } = req.query;
         
-        console.log(`📦 Chunk recebido: ${chunk_number}/${total_chunks} para ${original_name}`);
+        if (!session_id) {
+            return res.status(400).json({ error: 'session_id é obrigatório' });
+        }
+        
+        console.log(`📦 Chunk recebido: ${chunk_number}/${total_chunks} para ${original_name} (session: ${session_id})`);
         
         // LIMIT CHECK for non-premium
         if (!isUserPremium(key)) {
@@ -450,32 +456,56 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
         }
 
         // Validação melhorada
-        if (!filename || !chunk_number || !total_chunks || !original_name || !req.body) {
+        if (!chunk_number || !total_chunks || !original_name || !req.body) {
             console.log(`❌ Dados inválidos no upload`);
             return res.status(400).json({ error: 'Dados inválidos ou incompletos' });
         }
 
         const chunkIndex = parseInt(chunk_number);
         const total = parseInt(total_chunks);
-        const filePath = path.join(UPLOAD_DIR, filename);
-        const tempPath = `${filePath}.part${chunkIndex}`;
+        
+        // Usar session_id como nome base consistente
+        const baseFilename = `upload_${session_id}`;
+        const ext = path.extname(original_name);
+        const finalFilename = `${Date.now()}_${original_name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        
+        // Guardar informação da sessão no primeiro chunk
+        if (chunkIndex === 1) {
+            uploadSessions.set(session_id, {
+                originalName: original_name,
+                finalFilename: finalFilename,
+                key: key,
+                permission: permission,
+                totalChunks: total,
+                receivedChunks: new Set()
+            });
+        }
+        
+        const session = uploadSessions.get(session_id);
+        if (!session) {
+            return res.status(400).json({ error: 'Sessão de upload inválida. Comece pelo chunk 1.' });
+        }
+        
+        const tempPath = path.join(UPLOAD_DIR, `${baseFilename}.part${chunkIndex}`);
+        const finalPath = path.join(UPLOAD_DIR, session.finalFilename);
 
         // LOG: Tamanho do chunk recebido
         console.log(`   ↳ Tamanho do chunk: ${req.body.length} bytes`);
+        console.log(`   ↳ A guardar em: ${tempPath}`);
 
         // Gravar o pedaço temporariamente
         fs.writeFileSync(tempPath, req.body);
-        console.log(`   ↳ Chunk ${chunkIndex} guardado em disco`);
+        session.receivedChunks.add(chunkIndex);
+        console.log(`   ↳ Chunk ${chunkIndex} guardado (${session.receivedChunks.size}/${total})`);
         
-        // Se for o último chunk, reconstruir o ficheiro
-        if (chunkIndex === total) {
+        // Se for o último chunk OU todos os chunks foram recebidos
+        if (session.receivedChunks.size === total) {
              console.log(`🔨 A reconstruir ficheiro completo: ${original_name}`);
              
              // Verificar se todos os chunks existem
              const missingChunks = [];
              for (let i = 1; i <= total; i++) {
-                 const part = `${filePath}.part${i}`;
-                 if (!fs.existsSync(part)) {
+                 if (!session.receivedChunks.has(i)) {
                      missingChunks.push(i);
                  }
              }
@@ -485,49 +515,55 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
                  return res.status(400).json({ error: `Missing chunks: ${missingChunks.join(', ')}` });
              }
              
-             // Juntar todos os chunks usando Buffer para preservar dados binários
+             // Juntar todos os chunks usando Buffer
              const chunks = [];
              let totalSize = 0;
              
              for (let i = 1; i <= total; i++) {
-                 const part = `${filePath}.part${i}`;
-                 const chunkData = fs.readFileSync(part);
-                 chunks.push(chunkData);
-                 totalSize += chunkData.length;
-                 console.log(`   ↳ Chunk ${i}: ${chunkData.length} bytes`);
+                 const part = path.join(UPLOAD_DIR, `${baseFilename}.part${i}`);
+                 if (fs.existsSync(part)) {
+                     const chunkData = fs.readFileSync(part);
+                     chunks.push(chunkData);
+                     totalSize += chunkData.length;
+                     console.log(`   ↳ Chunk ${i}: ${chunkData.length} bytes`);
+                 } else {
+                     console.log(`   ⚠️ Chunk ${i} não encontrado em ${part}`);
+                 }
              }
              
              // Concatenar todos os buffers
              const finalBuffer = Buffer.concat(chunks);
-             console.log(`   ↳ Tamanho total final: ${finalBuffer.length} bytes (esperado: ${totalSize})`);
+             console.log(`   ↳ Tamanho total final: ${finalBuffer.length} bytes`);
              
              // Escrever o ficheiro final
-             fs.writeFileSync(filePath, finalBuffer);
-             console.log(`   ↳ Ficheiro final escrito`);
+             fs.writeFileSync(finalPath, finalBuffer);
+             console.log(`   ↳ Ficheiro final escrito em: ${finalPath}`);
              
              // Limpar chunks temporários
              for (let i = 1; i <= total; i++) {
-                 const part = `${filePath}.part${i}`;
+                 const part = path.join(UPLOAD_DIR, `${baseFilename}.part${i}`);
                  try {
-                     fs.unlinkSync(part);
+                     if (fs.existsSync(part)) {
+                         fs.unlinkSync(part);
+                     }
                  } catch(e) {
                      console.log(`   ⚠️ Não foi possível apagar ${part}`);
                  }
              }
              console.log(`   ↳ Chunks temporários limpos`);
              
-             // Verificar tamanho final do ficheiro
-             const finalSize = fs.statSync(filePath).size;
+             // Verificar tamanho final
+             const finalSize = fs.statSync(finalPath).size;
              console.log(`   ↳ Tamanho verificado no disco: ${finalSize} bytes`);
              
-             // Usar o nome ORIGINAL para deteção de MIME type
+             // Detectar MIME type
              const detectedMimeType = getMimeType(original_name);
              console.log(`   ↳ MIME Type detectado: ${detectedMimeType}`);
              
-             // Adicionar à "base de dados"
+             // Adicionar à base de dados
              const newFile = {
                  id: Date.now().toString(),
-                 filename: filename,
+                 filename: session.finalFilename,
                  originalName: original_name,
                  ownerKey: key,
                  permission: permission || 'view', 
@@ -538,6 +574,9 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
              
              files.push(newFile);
              saveDB();
+             
+             // Limpar sessão
+             uploadSessions.delete(session_id);
              
              console.log(`✅ Upload completo: ${original_name} (${(finalSize / 1024 / 1024).toFixed(2)} MB, ${detectedMimeType})`);
              
