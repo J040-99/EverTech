@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>EverTech Cloud - BetaTwo</title>
-    <!-- Incluir Vue.js -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -15,14 +14,51 @@
         .input-dark { background: #2d2d2d; border: 1px solid #444; color: white; }
         .input-dark:focus { border-color: #00e5ff; outline: none; }
         [v-cloak] { display: none; }
+        .modal-backdrop { background: rgba(0,0,0,0.9); backdrop-filter: blur(10px); }
+        .file-card.selected { border-color: #00e5ff !important; background: rgba(0, 229, 255, 0.1); }
     </style>
 </head>
 <body>
 
 <div id="app" v-cloak class="min-h-screen flex flex-col items-center justify-center p-4">
 
-    <!-- PUBLIC FILE VIEWER (quando ?file= na URL) -->
-    <div v-if="viewMode === 'public' && sharedFile" class="w-full max-w-4xl space-y-6">
+    <!-- MODAL DE PRÉVIA AMPLIADA -->
+    <div v-if="previewModal" @click="closePreview" class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4">
+        <div @click.stop class="bg-[#1a1a1a] rounded-lg max-w-6xl w-full max-h-[90vh] overflow-auto border border-gray-700">
+            <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                <h3 class="text-xl font-bold">{{ previewModal.originalName }}</h3>
+                <button @click="closePreview" class="text-gray-400 hover:text-white text-2xl">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="p-6 flex items-center justify-center bg-black/40">
+                <img v-if="previewModal.mimeType && previewModal.mimeType.startsWith('image')" 
+                     :src="getFileUrl(previewModal.filename)" 
+                     class="max-w-full max-h-[70vh] object-contain rounded">
+                <video v-else-if="previewModal.mimeType && previewModal.mimeType.startsWith('video')" 
+                       :src="getFileUrl(previewModal.filename)" 
+                       controls 
+                       class="max-w-full max-h-[70vh] rounded">
+                </video>
+                <div v-else class="text-center text-gray-400">
+                    <i class="fas fa-file text-6xl mb-4"></i>
+                    <p>Prévia não disponível</p>
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-700 flex justify-between items-center">
+                <div class="text-sm text-gray-400">
+                    {{ formatSize(previewModal.size) }} • {{ formatDate(previewModal.uploadDate) }}
+                </div>
+                <a :href="getFileUrl(previewModal.filename)" :download="previewModal.originalName" 
+                   class="btn-primary px-4 py-2 rounded-lg">
+                    <i class="fas fa-download"></i> Baixar
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- PUBLIC FILE VIEWER -->
+    <div v-if="viewMode === 'public' && sharedFile" class="w-full max-w-6xl space-y-6">
         <div class="glass-panel p-8">
             <div class="flex items-center justify-between mb-6">
                 <div>
@@ -34,20 +70,20 @@
                 </a>
             </div>
 
-            <!-- Preview -->
-            <div class="bg-black/40 rounded-lg p-4 mb-4 flex items-center justify-center min-h-[400px]">
+            <!-- Preview MAIOR -->
+            <div class="bg-black/60 rounded-lg p-6 mb-4 flex items-center justify-center" style="min-height: 600px;">
                 <img v-if="sharedFile.mimeType && sharedFile.mimeType.startsWith('image')" 
                      :src="sharedFile.url" 
                      :alt="sharedFile.originalName"
-                     class="max-w-full max-h-[600px] object-contain rounded">
+                     class="max-w-full max-h-[800px] object-contain rounded shadow-2xl">
                 <video v-else-if="sharedFile.mimeType && sharedFile.mimeType.startsWith('video')" 
                        :src="sharedFile.url" 
                        controls 
-                       class="max-w-full max-h-[600px] rounded">
+                       class="max-w-full max-h-[800px] rounded shadow-2xl">
                 </video>
                 <div v-else class="text-center">
-                    <i class="fas fa-file text-6xl text-gray-600 mb-4"></i>
-                    <p class="text-gray-400">Pré-visualização não disponível. Use o botão "Baixar" acima.</p>
+                    <i class="fas fa-file text-8xl text-gray-600 mb-6"></i>
+                    <p class="text-gray-400 text-lg">Prévia não disponível. Use o botão "Baixar" acima.</p>
                 </div>
             </div>
 
@@ -146,7 +182,6 @@
                 </button>
             </div>
 
-            <!-- Progress Bar -->
             <div v-if="isUploading" class="w-full bg-gray-700 rounded-full h-2.5 mt-4 overflow-hidden">
                 <div class="bg-cyan-400 h-2.5 rounded-full transition-all duration-300" :style="{ width: uploadProgress + '%' }"></div>
             </div>
@@ -156,7 +191,21 @@
         <div class="glass-panel p-6">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-semibold">Meus Ficheiros</h3>
-                <button @click="fetchFiles" class="text-cyan-400 hover:text-cyan-300"><i class="fas fa-sync-alt"></i></button>
+                <div class="flex gap-2">
+                    <button v-if="files.length > 0" @click="toggleSelectAll" class="text-cyan-400 hover:text-cyan-300 text-sm px-3 py-1 border border-cyan-400/50 rounded">
+                        <i class="fas" :class="allSelected ? 'fa-check-square' : 'fa-square'"></i> 
+                        {{ allSelected ? 'Desmarcar' : 'Selecionar' }} Todos
+                    </button>
+                    <button v-if="selectedFiles.length > 0" @click="downloadSelected" class="bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 text-sm px-3 py-1 rounded border border-cyan-500/50">
+                        <i class="fas fa-download"></i> Baixar ({{ selectedFiles.length }})
+                    </button>
+                    <button v-if="selectedFiles.length > 0" @click="deleteSelected" class="bg-red-900/30 text-red-400 hover:bg-red-900/50 text-sm px-3 py-1 rounded border border-red-500/50">
+                        <i class="fas fa-trash"></i> Apagar ({{ selectedFiles.length }})
+                    </button>
+                    <button @click="fetchFiles" class="text-cyan-400 hover:text-cyan-300">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
             </div>
 
             <div v-if="files.length === 0" class="text-center py-10 text-gray-500">
@@ -165,11 +214,29 @@
             </div>
 
             <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div v-for="file in files" :key="file.id" class="bg-[#252525] p-4 rounded-lg border border-gray-700 hover:border-gray-500 transition relative group">
+                <div v-for="file in files" :key="file.id" 
+                     @click="toggleFileSelection(file.id)"
+                     class="file-card bg-[#252525] p-4 rounded-lg border border-gray-700 hover:border-gray-500 transition relative group cursor-pointer"
+                     :class="{ 'selected': selectedFiles.includes(file.id) }">
                     
+                    <!-- Checkbox de Seleção -->
+                    <div class="absolute top-2 left-2 z-10">
+                        <div class="w-6 h-6 rounded border-2 flex items-center justify-center transition"
+                             :class="selectedFiles.includes(file.id) ? 'bg-cyan-400 border-cyan-400' : 'bg-gray-800 border-gray-600'">
+                            <i v-if="selectedFiles.includes(file.id)" class="fas fa-check text-black text-xs"></i>
+                        </div>
+                    </div>
+
                     <!-- File Icon/Preview -->
-                    <div class="h-32 mb-3 bg-black/30 rounded flex items-center justify-center overflow-hidden">
-                        <img v-if="file.mimeType && file.mimeType.startsWith('image')" :src="getFileUrl(file.filename)" class="object-cover w-full h-full opacity-80 group-hover:opacity-100 transition">
+                    <div @click.stop="openPreview(file)" class="h-32 mb-3 bg-black/30 rounded flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-90">
+                        <img v-if="file.mimeType && file.mimeType.startsWith('image')" 
+                             :src="getFileUrl(file.filename)" 
+                             class="object-cover w-full h-full">
+                        <video v-else-if="file.mimeType && file.mimeType.startsWith('video')" 
+                               :src="getFileUrl(file.filename)"
+                               class="object-cover w-full h-full"
+                               muted>
+                        </video>
                         <i v-else class="fas fa-file-alt text-4xl text-gray-600"></i>
                     </div>
 
@@ -177,10 +244,14 @@
                     <p class="text-xs text-gray-500 mb-3">{{ formatSize(file.size) }} • {{ formatDate(file.uploadDate) }}</p>
 
                     <div class="flex gap-2">
-                        <button @click="copyLink(file)" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs py-2 rounded text-gray-300">
-                            <i class="fas fa-link"></i> Copiar Link
+                        <button @click.stop="copyLink(file)" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs py-2 rounded text-gray-300">
+                            <i class="fas fa-link"></i> Link
                         </button>
-                        <button @click="deleteFile(file.id)" class="bg-red-900/30 hover:bg-red-900/50 text-red-400 px-3 rounded text-xs">
+                        <a @click.stop :href="getFileUrl(file.filename)" :download="file.originalName" 
+                           class="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 px-3 rounded text-xs flex items-center">
+                            <i class="fas fa-download"></i>
+                        </a>
+                        <button @click.stop="deleteFile(file.id)" class="bg-red-900/30 hover:bg-red-900/50 text-red-400 px-3 rounded text-xs">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -188,7 +259,7 @@
             </div>
         </div>
 
-        <!-- ADS SECTION (Free Users Only) -->
+        <!-- ADS SECTION -->
         <div v-if="!isPremium" class="mt-8 text-center p-4 bg-[#1a1a1a] rounded-lg border border-gray-800">
             <p class="text-xs text-gray-500 uppercase tracking-widest mb-2">Publicidade</p>
             <div class="bg-gray-800 w-full h-32 flex items-center justify-center rounded text-gray-600">
@@ -205,21 +276,27 @@
     createApp({
         data() {
             return {
-                viewMode: 'login', // 'login', 'dashboard', 'public'
+                viewMode: 'login',
                 sharedFile: null,
+                previewModal: null,
                 loginKey: localStorage.getItem('userKey') || '',
                 loginPassword: '',
                 loginError: '',
                 userKey: '',
                 isPremium: false,
                 files: [],
+                selectedFiles: [],
                 isUploading: false,
                 uploadProgress: 0,
                 uploadPermission: 'view'
             }
         },
+        computed: {
+            allSelected() {
+                return this.files.length > 0 && this.selectedFiles.length === this.files.length;
+            }
+        },
         async mounted() {
-            // Verificar se há um ?file=ID na URL (visualização pública)
             const urlParams = new URLSearchParams(window.location.search);
             const fileId = urlParams.get('file');
             
@@ -243,6 +320,52 @@
                     alert('Erro ao carregar ficheiro.');
                     this.viewMode = 'login';
                 }
+            },
+            openPreview(file) {
+                this.previewModal = file;
+            },
+            closePreview() {
+                this.previewModal = null;
+            },
+            toggleFileSelection(fileId) {
+                const index = this.selectedFiles.indexOf(fileId);
+                if (index > -1) {
+                    this.selectedFiles.splice(index, 1);
+                } else {
+                    this.selectedFiles.push(fileId);
+                }
+            },
+            toggleSelectAll() {
+                if (this.allSelected) {
+                    this.selectedFiles = [];
+                } else {
+                    this.selectedFiles = this.files.map(f => f.id);
+                }
+            },
+            async downloadSelected() {
+                for (const fileId of this.selectedFiles) {
+                    const file = this.files.find(f => f.id === fileId);
+                    if (file) {
+                        const link = document.createElement('a');
+                        link.href = this.getFileUrl(file.filename);
+                        link.download = file.originalName;
+                        link.click();
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
+            },
+            async deleteSelected() {
+                if (!confirm(`Apagar ${this.selectedFiles.length} ficheiro(s)?`)) return;
+                
+                for (const fileId of this.selectedFiles) {
+                    await fetch(`/api/files/${fileId}`, {
+                        method: 'DELETE',
+                        headers: { 'x-owner-key': this.userKey }
+                    });
+                }
+                
+                this.selectedFiles = [];
+                this.fetchFiles();
             },
             goToLogin() {
                 window.location.href = '/';
@@ -275,6 +398,7 @@
                 this.userKey = '';
                 this.loginPassword = '';
                 this.files = [];
+                this.selectedFiles = [];
                 localStorage.removeItem('userKey');
             },
             async fetchFiles() {
