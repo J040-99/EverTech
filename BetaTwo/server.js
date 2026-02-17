@@ -4,12 +4,12 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
+const crypto = require('crypto'); // Para hashing de passwords
 
 // Configuração Stripe: Lê a chave da variável de ambiente ou falha se não existir
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 if (!stripeSecretKey) {
     console.error("ERRO CRÍTICO: A variável de ambiente STRIPE_SECRET_KEY não foi definida!");
-    console.error("Por favor, inicie o servidor com a chave secreta.");
 }
 const stripe = require('stripe')(stripeSecretKey);
 
@@ -26,11 +26,58 @@ const HTTP_PORT = process.env.HTTP_PORT || 3000;
 const corsOptions = {
     origin: '*', 
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-owner-key']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-owner-key', 'stripe-signature']
 };
 app.use(cors(corsOptions));
 
-// Aumenta o limite de JSON para garantir que metadados passam
+// Webhook precisa de RAW body, antes do JSON parser global
+app.post('/webhook', express.raw({type: 'application/json'}), async (request, response) => {
+  const sig = request.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+
+  try {
+    // Se houver segredo de webhook configurado, verifica a assinatura
+    if (endpointSecret) {
+        event = stripe.webhooks.constructEvent(request.body, sig, endpointSecret);
+    } else {
+        // Fallback inseguro apenas para dev (não recomendado em prod)
+        event = JSON.parse(request.body);
+    }
+  } catch (err) {
+    console.error(`Webhook Error: ${err.message}`);
+    response.status(400).send(`Webhook Error: ${err.message}`);
+    return;
+  }
+
+  // Handle the event
+  switch (event.type) {
+    case 'charge.refunded':
+      const refund = event.data.object;
+      console.log('Reembolso detetado:', refund.id);
+      // Encontrar utilizador pelo email do pagamento original e remover premium
+      if (refund.billing_details && refund.billing_details.email) {
+          removePremiumByEmail(refund.billing_details.email);
+      } else {
+          // Tentar buscar o PaymentIntent para ter o email
+          const paymentIntentId = refund.payment_intent;
+          try {
+              const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+              if (pi.receipt_email) {
+                  removePremiumByEmail(pi.receipt_email);
+              }
+          } catch(e) { console.error("Erro ao buscar PI do reembolso:", e); }
+      }
+      break;
+    default:
+      // console.log(`Unhandled event type ${event.type}`);
+  }
+
+  response.send();
+});
+
+// Aumenta o limite de JSON para garantir que metadados passam (colocado DEPOIS do webhook)
 app.use(express.json({ limit: '1mb' }));
 
 // Set Security Headers - PERMITIR Cloudflare e Stripe
@@ -102,6 +149,66 @@ function isUserPremium(key) {
     const user = users.find(u => u.key === key);
     return user && user.isPremium;
 }
+
+// Helper para remover premium (usado no webhook)
+function removePremiumByEmail(email) {
+    const user = users.find(u => u.email === email);
+    if (user) {
+        user.isPremium = false;
+        console.log(`PREMIUM REMOVIDO: Utilizador com email ${email} foi reembolsado.`);
+        saveDB();
+    } else {
+        console.log(`AVISO: Reembolso recebido para ${email} mas utilizador não encontrado.`);
+    }
+}
+
+// --- AUTH SYSTEM (LOGIN SEGURO) ---
+
+// Hash simples para passwords (SHA-256)
+function hashPassword(password) {
+    return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+// Rota de Registo/Login Híbrida
+app.post('/api/auth/login', (req, res) => {
+    const { key, password } = req.body;
+
+    if (!key || !password) {
+        return res.status(400).json({ error: 'Chave e password são obrigatórios' });
+    }
+
+    const userIndex = users.findIndex(u => u.key === key);
+
+    if (userIndex === -1) {
+        // Utilizador NOVO: Criar conta com esta password
+        const newUser = {
+            key: key,
+            passwordHash: hashPassword(password),
+            isPremium: false,
+            createdAt: new Date()
+        };
+        users.push(newUser);
+        saveDB();
+        return res.json({ success: true, message: 'Conta criada e login efetuado.', isPremium: false });
+    } else {
+        // Utilizador EXISTENTE: Verificar password
+        const user = users[userIndex];
+        
+        // Se utilizador antigo sem password, definir agora (migração)
+        if (!user.passwordHash) {
+            user.passwordHash = hashPassword(password);
+            saveDB();
+            return res.json({ success: true, message: 'Password definida. Login efetuado.', isPremium: user.isPremium });
+        }
+
+        // Verificar hash
+        if (user.passwordHash === hashPassword(password)) {
+            return res.json({ success: true, message: 'Login efetuado.', isPremium: user.isPremium });
+        } else {
+            return res.status(401).json({ error: 'Password incorreta.' });
+        }
+    }
+});
 
 // Servir index.html com Open Graph Tags dinâmicas (SSR Básico)
 app.get('/', (req, res) => {
@@ -180,7 +287,7 @@ app.post('/create-checkout-session', async (req, res) => {
                             name: 'EverTech Cloud Premium',
                             description: 'Sem anúncios, uploads ilimitados',
                         },
-                        unit_amount: 500, // 5.00 EUR
+                        unit_amount: 100, // 1.00 EUR (Preço Atualizado)
                     },
                     quantity: 1,
                 },
@@ -204,10 +311,14 @@ app.get('/session-status', async (req, res) => {
         if (session.status === 'complete' && userKey) {
              // Upgrade user
              const userIndex = users.findIndex(u => u.key === userKey);
+             // Regista o email para podermos revogar se houver reembolso
+             const email = session.customer_details?.email;
+             
              if (userIndex >= 0) {
                  users[userIndex].isPremium = true;
+                 users[userIndex].email = email;
              } else {
-                 users.push({ key: userKey, isPremium: true, email: session.customer_details.email });
+                 users.push({ key: userKey, isPremium: true, email: email, createdAt: new Date() });
              }
              saveDB();
         }
@@ -308,7 +419,7 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
              return res.json({ success: true, message: 'Upload completo', file: { id: newFile.id } });
         }
 
-        res.json({ success: true, message: `Chunk ${chunkIndex} recebido` });
+        res.json({ success: true, message: 'Chunk recebido' });
 
     } catch (error) {
         console.error("Erro no upload:", error);
