@@ -322,6 +322,10 @@
             }
         },
         methods: {
+            // Gera um ID único para a sessão de upload
+            generateSessionId() {
+                return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+            },
             async loadPublicFile(fileId) {
                 try {
                     const res = await fetch(`/api/files/${fileId}`);
@@ -441,12 +445,19 @@
                 const CHUNK_SIZE = 5 * 1024 * 1024;
                 const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
                 
+                // Gerar um session_id único para este ficheiro
+                const sessionId = this.generateSessionId();
+                console.log(`🆔 Nova sessão de upload: ${sessionId} para ${file.name}`);
+                
                 for (let i = 0; i < totalChunks; i++) {
                     const start = i * CHUNK_SIZE;
                     const end = Math.min(file.size, start + CHUNK_SIZE);
                     const chunk = file.slice(start, end);
                     
-                    await fetch(`/api/upload_chunk?filename=${Date.now()}_${file.name}&chunk_number=${i+1}&total_chunks=${totalChunks}&original_name=${file.name}&key=${this.userKey}&permission=${this.uploadPermission}`, {
+                    // Usar session_id em vez de filename dinâmico
+                    const url = `/api/upload_chunk?session_id=${sessionId}&chunk_number=${i+1}&total_chunks=${totalChunks}&original_name=${encodeURIComponent(file.name)}&key=${this.userKey}&permission=${this.uploadPermission}`;
+                    
+                    await fetch(url, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/octet-stream'
