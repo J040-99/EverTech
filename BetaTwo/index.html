@@ -16,6 +16,20 @@
         [v-cloak] { display: none; }
         .modal-backdrop { background: rgba(0,0,0,0.9); backdrop-filter: blur(10px); }
         .file-card.selected { border-color: #00e5ff !important; background: rgba(0, 229, 255, 0.1); }
+        .video-thumbnail { position: relative; }
+        .video-thumbnail::after { 
+            content: '\f04b'; 
+            font-family: 'Font Awesome 6 Free'; 
+            font-weight: 900;
+            position: absolute; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            font-size: 2rem; 
+            color: white; 
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -38,6 +52,7 @@
                 <video v-else-if="previewModal.mimeType && previewModal.mimeType.startsWith('video')" 
                        :src="getFileUrl(previewModal.filename)" 
                        controls 
+                       autoplay
                        class="max-w-full max-h-[70vh] rounded">
                 </video>
                 <div v-else class="text-center text-gray-400">
@@ -70,16 +85,16 @@
                 </a>
             </div>
 
-            <!-- Preview MAIOR -->
-            <div class="bg-black/60 rounded-lg p-6 mb-4 flex items-center justify-center" style="min-height: 600px;">
+            <!-- Preview REDUZIDO para 600px -->
+            <div class="bg-black/60 rounded-lg p-6 mb-4 flex items-center justify-center" style="min-height: 500px;">
                 <img v-if="sharedFile.mimeType && sharedFile.mimeType.startsWith('image')" 
                      :src="sharedFile.url" 
                      :alt="sharedFile.originalName"
-                     class="max-w-full max-h-[800px] object-contain rounded shadow-2xl">
+                     class="max-w-full max-h-[600px] object-contain rounded shadow-2xl">
                 <video v-else-if="sharedFile.mimeType && sharedFile.mimeType.startsWith('video')" 
                        :src="sharedFile.url" 
                        controls 
-                       class="max-w-full max-h-[800px] rounded shadow-2xl">
+                       class="max-w-full max-h-[600px] rounded shadow-2xl">
                 </video>
                 <div v-else class="text-center">
                     <i class="fas fa-file text-8xl text-gray-600 mb-6"></i>
@@ -232,11 +247,13 @@
                         <img v-if="file.mimeType && file.mimeType.startsWith('image')" 
                              :src="getFileUrl(file.filename)" 
                              class="object-cover w-full h-full">
-                        <video v-else-if="file.mimeType && file.mimeType.startsWith('video')" 
-                               :src="getFileUrl(file.filename)"
-                               class="object-cover w-full h-full"
-                               muted>
-                        </video>
+                        <div v-else-if="file.mimeType && file.mimeType.startsWith('video')" 
+                             class="video-thumbnail w-full h-full relative">
+                            <video :src="getFileUrl(file.filename)"
+                                   class="object-cover w-full h-full"
+                                   preload="metadata">
+                            </video>
+                        </div>
                         <i v-else class="fas fa-file-alt text-4xl text-gray-600"></i>
                     </div>
 
