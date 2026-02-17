@@ -15,6 +15,7 @@
         .btn:active { transform: scale(0.98); }
         .btn-danger { background: #ff5252; color: #fff; }
         .btn-icon { background: transparent; border: 1px solid #555; color: #fff; padding: 8px 12px; }
+        .btn-premium { background: linear-gradient(45deg, #FFD700, #FFA500); color: #000; }
         
         /* Inputs */
         .key-input { width: 100%; padding: 12px; background: #000; border: 1px solid var(--primary); color: white; border-radius: 6px; box-sizing: border-box; font-family: monospace; letter-spacing: 1px; }
@@ -96,6 +97,18 @@
             background: var(--surface); padding: 25px; border-radius: 12px;
             border: 1px solid var(--border); width: 90%; max-width: 450px; text-align: center;
         }
+        
+        /* Anúncios */
+        .ad-banner {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: #888;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -108,11 +121,17 @@
             <div class="flex-between">
                 <h2 style="margin:0">🔒 Chave Secreta</h2>
                 <div style="display:flex; gap:5px">
+                    <button id="premium-badge" class="btn btn-premium hidden" style="font-size:12px; padding:5px 10px; pointer-events:none">👑 PREMIUM</button>
                     <button class="btn btn-icon" onclick="toggleKey()">👁️</button>
                 </div>
             </div>
             <p style="font-size:12px; color:#888; margin: 10px 0;">Esta chave é a única forma de ver os teus ficheiros.</p>
             <input type="password" id="owner-key" class="key-input" oninput="saveKey()">
+            
+            <div id="premium-cta" class="hidden" style="margin-top:10px; padding-top:10px; border-top:1px solid #333; text-align:center">
+                <p style="font-size:13px; color:#aaa; margin-bottom:10px">Utilizador Gratuito (Máx 5 ficheiros)</p>
+                <a href="/checkout.html" class="btn btn-premium" style="text-decoration:none; display:inline-block; font-size:13px">💎 Ser Premium (Remove Limites & Ads)</a>
+            </div>
         </div>
 
         <!-- NAVEGAÇÃO -->
@@ -167,6 +186,12 @@
                 <div id="viewer" class="hidden" style="margin-top:20px; padding-top:20px; border-top:1px solid #333"></div>
             </div>
         </div>
+        
+        <!-- ANÚNCIO (Só para users free) -->
+        <div id="ad-space" class="ad-banner hidden">
+            <p>📢 <b>Espaço de Publicidade</b></p>
+            <p>Compre a versão Premium para remover este anúncio e ter uploads ilimitados!</p>
+        </div>
     </div>
 
     <!-- UI Elements: Toast & Modal -->
@@ -194,9 +219,38 @@
         const keyInput = document.getElementById('owner-key');
         keyInput.value = localStorage.getItem('myKey') || Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
         saveKey();
+        checkPremium(); // Verificar status ao iniciar
 
-        function saveKey() { localStorage.setItem('myKey', keyInput.value); }
+        function saveKey() { 
+            localStorage.setItem('myKey', keyInput.value); 
+            // Atualiza link de checkout se a chave mudar
+            const checkoutLink = document.querySelector('#premium-cta a');
+            if(checkoutLink) checkoutLink.href = `/checkout.html?key=${keyInput.value}`;
+            checkPremium(); 
+        }
         function toggleKey() { keyInput.type = keyInput.type === "password" ? "text" : "password"; }
+
+        // --- VERIFICAÇÃO PREMIUM ---
+        async function checkPremium() {
+            try {
+                const res = await fetch(`${API}/user-status?key=${keyInput.value}`);
+                const data = await res.json();
+                
+                if (data.isPremium) {
+                    document.getElementById('premium-badge').classList.remove('hidden');
+                    document.getElementById('premium-cta').classList.add('hidden');
+                    document.getElementById('ad-space').classList.add('hidden');
+                } else {
+                    document.getElementById('premium-badge').classList.add('hidden');
+                    document.getElementById('premium-cta').classList.remove('hidden');
+                    document.getElementById('ad-space').classList.remove('hidden');
+                    
+                    // Update checkout link with current key
+                    const checkoutLink = document.querySelector('#premium-cta a');
+                    if(checkoutLink) checkoutLink.href = `/checkout.html?key=${keyInput.value}`;
+                }
+            } catch (e) { console.error('Erro ao verificar premium', e); }
+        }
 
         // --- UI/UX: Drag & Drop ---
         const dropZone = document.getElementById('drop-zone');
@@ -278,7 +332,11 @@
                             body: chunk
                         });
 
-                        if(!res.ok) throw new Error('Servidor rejeitou');
+                        if(!res.ok) {
+                            const errData = await res.json();
+                            if(res.status === 403) throw new Error(errData.error);
+                            throw new Error('Servidor rejeitou');
+                        }
                         success = true;
                         
                         if(chunkNum === totalChunks) {
@@ -288,6 +346,12 @@
                         }
                         break; 
                     } catch (e) {
+                        if(e.message.includes('Limit reached')) {
+                            alert('⚠️ Limite Atingido (5 ficheiros)! Faz upgrade para Premium.');
+                            isUploading = false;
+                            document.getElementById('upload-status').classList.add('hidden');
+                            return;
+                        }
                         document.getElementById('progress-info').innerText = `Erro de rede... A tentar de novo (${attempt}/${MAX_RETRIES})`;
                         await new Promise(r => setTimeout(r, 1000));
                     }
@@ -350,7 +414,6 @@
                 }
 
                 list.innerHTML = data.map(f => {
-                    // CORREÇÃO: Link com query param na lista também
                     const fullLink = window.location.origin + '/?file=' + f.id;
                     const sizeMB = (f.size / (1024*1024)).toFixed(1);
                     const fileName = f.originalName || f.name || 'Sem nome';
