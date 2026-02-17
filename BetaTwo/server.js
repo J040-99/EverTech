@@ -103,9 +103,15 @@ app.use((err, req, res, next) => {
 
 // Configuração para servir ficheiros (Streaming de Vídeo)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-    setHeaders: (res) => {
+    setHeaders: (res, filePath) => {
         res.set("Accept-Ranges", "bytes");
         res.set("Access-Control-Allow-Origin", "*");
+        // Set correct MIME type based on file extension
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeType = getMimeType(filePath);
+        if (mimeType) {
+            res.set("Content-Type", mimeType);
+        }
     }
 }));
 
@@ -362,11 +368,68 @@ app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'style.css
 
 // --- API ROUTES ---
 
+// MIME Type detection melhorada - tipos específicos para cada formato
 function getMimeType(filename) {
     const ext = path.extname(filename).toLowerCase();
-    if (['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext)) return 'video/mp4';
-    if (['.jpg', '.png', '.jpeg', '.gif', '.webp'].includes(ext)) return 'image/jpeg';
-    return 'application/octet-stream';
+    
+    // Vídeos - tipos específicos para cada formato
+    const videoTypes = {
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.ogg': 'video/ogg',
+        '.ogv': 'video/ogg',
+        '.mov': 'video/quicktime',
+        '.avi': 'video/x-msvideo',
+        '.wmv': 'video/x-ms-wmv',
+        '.flv': 'video/x-flv',
+        '.mkv': 'video/x-matroska',
+        '.m4v': 'video/x-m4v',
+        '.3gp': 'video/3gpp'
+    };
+    
+    // Imagens - tipos específicos para cada formato
+    const imageTypes = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.svg': 'image/svg+xml',
+        '.bmp': 'image/bmp',
+        '.ico': 'image/x-icon',
+        '.tiff': 'image/tiff',
+        '.tif': 'image/tiff'
+    };
+    
+    // Áudio
+    const audioTypes = {
+        '.mp3': 'audio/mpeg',
+        '.wav': 'audio/wav',
+        '.ogg': 'audio/ogg',
+        '.m4a': 'audio/mp4',
+        '.flac': 'audio/flac',
+        '.aac': 'audio/aac'
+    };
+    
+    // Documentos
+    const documentTypes = {
+        '.pdf': 'application/pdf',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        '.txt': 'text/plain',
+        '.csv': 'text/csv',
+        '.json': 'application/json',
+        '.xml': 'application/xml',
+        '.zip': 'application/zip',
+        '.rar': 'application/x-rar-compressed',
+        '.7z': 'application/x-7z-compressed'
+    };
+    
+    return videoTypes[ext] || imageTypes[ext] || audioTypes[ext] || documentTypes[ext] || 'application/octet-stream';
 }
 
 // --- ROTA DE UPLOAD ROBUSTA ---
@@ -420,6 +483,9 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
              // Espera que o ficheiro esteja completamente escrito antes de obter stats
              await writeFinished;
              
+             // Usar o nome ORIGINAL para detecção de MIME type (não o filename com timestamp)
+             const detectedMimeType = getMimeType(original_name);
+             
              // Adicionar à "base de dados"
              const newFile = {
                  id: Date.now().toString(),
@@ -428,12 +494,14 @@ app.post('/api/upload_chunk', express.raw({ type: 'application/octet-stream', li
                  ownerKey: key,
                  permission: permission || 'view', 
                  size: fs.statSync(filePath).size,
-                 mimeType: getMimeType(filename), 
+                 mimeType: detectedMimeType,
                  uploadDate: new Date()
              };
              
              files.push(newFile);
              saveDB(); // Persistir mudança
+             
+             console.log(`✅ Upload completo: ${original_name} (${detectedMimeType})`);
              
              return res.json({ success: true, message: 'Upload completo', file: { id: newFile.id } });
         }
